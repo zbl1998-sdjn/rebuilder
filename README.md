@@ -15,7 +15,7 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `230 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- Full unit test suite: `231 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
 - GLM-5.1 coding-plan endpoint smoke tested
 - Official ProgramBench cleanroom zoxide sample runs end-to-end
 - Frozen zoxide local smoke baseline: `16.7%` local differential equivalence
@@ -626,6 +626,10 @@ Completed:
   `csv_table`, `json_transform`, and `html_selector` from docs, CLI surface,
   and probe output, then injects those hints into spec, implementation, and
   repair prompts without overriding exact behavior contracts.
+- Task-domain profiles now include structured strategy packs with
+  implementation playbooks, repair playbooks, and anti-patterns. The first
+  packs cover network/ping, CSV/table, JSON transform, HTML selector,
+  archive/compression, terminal UI, and filesystem tools.
 - Docker reference probes now run containers with unique names and force-remove
   timed-out containers, preventing network-style tools from hanging the closed
   loop on long-running commands.
@@ -634,15 +638,15 @@ Completed:
   zero-count cases do not turn into accidental soak tests.
 - Ping-like tasks also guard bare host probes by adding a one-packet count,
   avoiding indefinite default ping behavior during cleanroom exploration.
-- `sheepla__pingu.926d475` was rerun with task profiling and the new probe
-  safety guards. It failed the local gate (`3/11` holdout, `27.3%`), so the
-  official evaluator was not invoked; this is the current network/ping
-  generalization gap case.
+- `sheepla__pingu.926d475` improved under the structured network/ping strategy
+  pack from the previous `3/11` holdout (`27.3%`) to `7/12` (`58.3%`), but it
+  still failed the `80%` local gate, so the official evaluator was not invoked.
+  This remains the current network/ping generalization gap case.
 
 Next priorities:
 
 - Investigate the local-vs-official gap using only aggregate official results and fresh cleanroom probes
-- Improve network/ping implementation strategy using the pingu local gate failure, without using official failure details
+- Validate the new domain strategy packs on pingu/htmlq/gron/xsv-style reruns without using official failure details
 - Run asset-enabled vs asset-disabled ablations before attributing score gains
 - Broaden file I/O probes to directory outputs and config/cache side effects
 - Shell init parity validation across more task shells and init flags

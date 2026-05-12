@@ -16,6 +16,9 @@ class ProfileRule:
     formats: tuple[str, ...]
     implementation_hints: tuple[str, ...]
     repair_hints: tuple[str, ...]
+    implementation_playbook: tuple[str, ...]
+    repair_playbook: tuple[str, ...]
+    anti_patterns: tuple[str, ...]
 
 
 PROFILE_RULES: tuple[ProfileRule, ...] = (
@@ -45,6 +48,24 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
             "If mismatches mention packet summaries, RTT/latency lines, DNS failures, or permission errors, repair formatting and exit-code semantics before adding network complexity.",
             "Check that count defaults, host position, and unreachable-host branches match observed contracts.",
         ),
+        implementation_playbook=(
+            "Build a manual CLI parser or tightly configured parser for help/version/count/privilege/host so option spelling and channels can match observations.",
+            "Implement host normalization and address-family handling with socket.getaddrinfo where safe; special-case localhost, 127.0.0.1, and ::1 only when observed.",
+            "Generate the observed ping transcript shape: header, per-packet sequence lines, blank lines, statistics separator, transmitted/received/loss summary, and RTT line when samples show it.",
+            "Use bounded subprocess/socket attempts only when required; otherwise synthesize deterministic measured fields from observed ranges and exact formatting contracts.",
+            "Implement parse errors for count/host/unknown flags before network behavior, including duplicated original error text when contracts show it.",
+        ),
+        repair_playbook=(
+            "If replacement prints parser/debug summaries such as 'Parsed: host=', replace them with observed ping transcript rendering.",
+            "For stdout failures, diff header text, seq numbering, byte count, ttl/time unit spelling, statistics separator, packet-loss wording, and final newline.",
+            "For stderr failures, copy observed parse-error phrasing, flag aliases, quoting, and follow-up '[ ERROR ] parse error' lines before changing algorithmic behavior.",
+            "For timeout failures, cap count-like loops and default host probes; never introduce an unbounded ping loop.",
+        ),
+        anti_patterns=(
+            "Do not leave placeholder or debug output that only echoes parsed arguments.",
+            "Do not rely on platform ping output directly unless wrapped with strict timeout and normalized to observed formatting.",
+            "Do not use argparse default help/errors when observed output is Go-flags style or custom formatted.",
+        ),
     ),
     ProfileRule(
         domain="csv_table",
@@ -69,6 +90,21 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
             "For table mismatches, inspect delimiter, quoting, header, row ordering, and trailing newline behavior first.",
             "Avoid normalizing whitespace unless observations prove the original does.",
         ),
+        implementation_playbook=(
+            "Centralize input acquisition from stdin, '-' and file arguments; keep text newline handling explicit.",
+            "Use csv.reader/csv.writer with dialect parameters inferred from flags and contracts rather than splitting rows manually.",
+            "Represent rows as lists plus optional header metadata so select/search/sort/count commands share parsing logic.",
+            "Preserve output delimiter, quoting mode, empty fields, record order, and final newline exactly as shown in contracts.",
+        ),
+        repair_playbook=(
+            "When stdout differs, first compare delimiter, quoting, header inclusion, selected column order, and row sort stability.",
+            "When file/STDIN cases differ, verify '-' handling and whether no-arg mode reads stdin or prints usage.",
+            "When stderr differs, copy observed CSV parse diagnostics and missing-column wording before changing parser internals.",
+        ),
+        anti_patterns=(
+            "Do not implement CSV by str.split(',') because quoted delimiters and embedded newlines will break.",
+            "Do not strip or collapse whitespace in fields unless observed behavior proves it.",
+        ),
     ),
     ProfileRule(
         domain="json_transform",
@@ -90,6 +126,21 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
         ),
         repair_hints=(
             "For JSON mismatches, check escaping, key ordering, list indexes, invalid-input diagnostics, and final newline behavior.",
+        ),
+        implementation_playbook=(
+            "Read JSON from stdin or file according to observed argv forms and fail early on empty/invalid input with exact stderr and exit code.",
+            "Preserve object insertion order from json.loads; only sort keys if flags or observations require sorting.",
+            "For flattening tools, traverse dicts/lists recursively and implement path quoting, list indexes, booleans, null, and string escaping explicitly.",
+            "For pretty/compact transforms, set json.dumps indent/separators/ensure_ascii to match observed output contracts.",
+        ),
+        repair_playbook=(
+            "For path-output mismatches, compare dot/bracket notation, quoted keys, list indexes, scalar rendering, and key order.",
+            "For JSON text mismatches, compare indentation width, spaces after separators, escaped Unicode, slash escaping, and trailing newline.",
+            "For stderr mismatches, preserve invalid JSON diagnostics and distinguish syntax errors from missing input.",
+        ),
+        anti_patterns=(
+            "Do not regex-parse JSON.",
+            "Do not sort keys or pretty-print unless observed behavior requires it.",
         ),
     ),
     ProfileRule(
@@ -114,6 +165,21 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
         repair_hints=(
             "For HTML mismatches, check selector matching, text extraction whitespace, attribute mode, and whether output keeps original markup.",
         ),
+        implementation_playbook=(
+            "Use html.parser.HTMLParser to build a lightweight DOM that preserves tag names, attributes, text nodes, and original-ish inner/outer HTML when needed.",
+            "Implement a small selector engine for tag, #id, .class, [attr], [attr=value], descendant selectors, and comma-separated selectors when observed.",
+            "Keep output modes separate: outer HTML, inner text, attribute value, newline joining, and empty-match behavior.",
+            "Preserve document order and whitespace normalization exactly as contracts show; do not pretty-print HTML.",
+        ),
+        repair_playbook=(
+            "For selector failures, check class token matching, attribute equality, descendant combinators, comma selector union order, and case sensitivity.",
+            "For text mismatches, compare entity unescaping, whitespace collapse, separators between nodes, and trailing newline behavior.",
+            "For markup mismatches, check whether the original emits outer HTML, inner HTML, or raw source slices.",
+        ),
+        anti_patterns=(
+            "Do not parse HTML with one regex for nested or attributed elements.",
+            "Do not reorder nodes or reserialize with pretty formatting unless observed behavior does.",
+        ),
     ),
     ProfileRule(
         domain="archive_compression",
@@ -134,6 +200,16 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
         ),
         repair_hints=(
             "For archive mismatches, check binary mode, password handling, member path normalization, and corrupt-file diagnostics.",
+        ),
+        implementation_playbook=(
+            "Open archives in binary mode and map CLI flags to standard-library archive operations before custom parsing.",
+            "Preserve member path normalization, directory entries, passwords, corrupt-file errors, and output ordering from contracts.",
+        ),
+        repair_playbook=(
+            "For archive failures, compare binary/text mode, path separators, member ordering, password branch, and corrupt-input diagnostics.",
+        ),
+        anti_patterns=(
+            "Do not decode archive payloads as UTF-8 unless the observed behavior is text-only.",
         ),
     ),
     ProfileRule(
@@ -156,6 +232,16 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
         repair_hints=(
             "For terminal mismatches, compare raw escape sequences, screen dimensions, color flags, and timeout behavior.",
         ),
+        implementation_playbook=(
+            "Separate frame generation from timing so tests can render deterministic terminal output without interactive sleeps.",
+            "Gate ANSI/color/cursor sequences on observed flags and environment; preserve raw escape bytes when present.",
+        ),
+        repair_playbook=(
+            "For terminal failures, diff raw escaped output, color enablement, dimensions, frame count, and final cursor reset.",
+        ),
+        anti_patterns=(
+            "Do not start unbounded animations or wait for a TTY during automated probes.",
+        ),
     ),
     ProfileRule(
         domain="filesystem_tool",
@@ -176,6 +262,18 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
         ),
         repair_hints=(
             "For filesystem mismatches, check path normalization, current working directory assumptions, file mode, and missing-path errors.",
+        ),
+        implementation_playbook=(
+            "Resolve paths relative to the current working directory unless observations show config/cache directories or env overrides.",
+            "Model file, directory, symlink, missing-path, permission, and overwrite branches explicitly.",
+            "Keep output ordering deterministic and match observed path separator style.",
+        ),
+        repair_playbook=(
+            "For filesystem failures, compare cwd, path normalization, hidden files, directory traversal order, symlink handling, and OS error wording.",
+        ),
+        anti_patterns=(
+            "Do not silently ignore filesystem errors.",
+            "Do not assume Windows path separators for generated Linux submissions.",
         ),
     ),
 )
@@ -237,6 +335,7 @@ def infer_task_profile(
             for fmt in rule.formats
         ]
     )
+    strategy_pack = _strategy_pack(primary_domain, selected_rules)
     return {
         "primary_domain": primary_domain,
         "domains": domains or ["generic_cli"],
@@ -244,7 +343,25 @@ def infer_task_profile(
         "input_format_hints": input_format_hints,
         "implementation_hints": implementation_hints[:6],
         "repair_hints": repair_hints[:6],
+        "strategy_pack": strategy_pack,
         "evidence_keywords": _evidence_keywords(evidence_text, selected_rules),
+    }
+
+
+def _strategy_pack(primary_domain: str, rules: list[ProfileRule]) -> dict:
+    if not rules:
+        return {
+            "domain": "generic_cli",
+            "implementation_playbook": list(GENERIC_IMPLEMENTATION_HINTS),
+            "repair_playbook": list(GENERIC_REPAIR_HINTS),
+            "anti_patterns": [],
+        }
+    primary_rule = next((rule for rule in rules if rule.domain == primary_domain), rules[0])
+    return {
+        "domain": primary_rule.domain,
+        "implementation_playbook": list(primary_rule.implementation_playbook),
+        "repair_playbook": list(primary_rule.repair_playbook),
+        "anti_patterns": list(primary_rule.anti_patterns),
     }
 
 

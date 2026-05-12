@@ -34,6 +34,7 @@ def task_profile_prompt(spec: ProgramSpec, *, purpose: str = "implementation") -
         "confidence": profile.get("confidence", "fallback"),
         "input_format_hints": profile.get("input_format_hints", []),
         hints_key: profile.get(hints_key, []),
+        "strategy_pack": _task_strategy_pack(profile, purpose=purpose),
         "evidence_keywords": profile.get("evidence_keywords", []),
     }
     return (
@@ -41,6 +42,18 @@ def task_profile_prompt(spec: ProgramSpec, *, purpose: str = "implementation") -
         "Use it as domain guidance, but never override exact observed contracts:\n"
         f"{json.dumps(payload, indent=2, ensure_ascii=False)}\n\n"
     )
+
+
+def _task_strategy_pack(profile: dict, *, purpose: str) -> dict:
+    pack = profile.get("strategy_pack")
+    if not isinstance(pack, dict):
+        return {}
+    playbook_key = "repair_playbook" if purpose == "repair" else "implementation_playbook"
+    return {
+        "domain": pack.get("domain", profile.get("primary_domain", "generic_cli")),
+        playbook_key: pack.get(playbook_key, []),
+        "anti_patterns": pack.get("anti_patterns", []),
+    }
 
 
 def behavior_contract_prompt(spec: ProgramSpec) -> str:

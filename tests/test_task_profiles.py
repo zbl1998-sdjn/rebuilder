@@ -38,6 +38,15 @@ def test_profile_detects_network_ping_from_docs_help_and_output():
     assert profile["primary_domain"] == "network_ping"
     assert "network_ping" in profile["domains"]
     assert any("privileged raw sockets" in hint for hint in profile["implementation_hints"])
+    assert profile["strategy_pack"]["domain"] == "network_ping"
+    assert any(
+        "ping transcript" in step
+        for step in profile["strategy_pack"]["implementation_playbook"]
+    )
+    assert any(
+        "placeholder or debug output" in item
+        for item in profile["strategy_pack"]["anti_patterns"]
+    )
 
 
 def test_profile_detects_common_data_tool_domains():
@@ -88,6 +97,25 @@ def test_task_profile_prompt_exposes_domain_hints():
     assert "Task strategy profile" in prompt
     assert "csv_table" in prompt
     assert "implementation_hints" in prompt
+    assert "implementation_playbook" in prompt
+    assert "csv.reader" in prompt
+
+
+def test_repair_profile_prompt_exposes_repair_playbook():
+    spec = ProgramSpec(
+        complexity_hints={
+            "task_profile": infer_task_profile(
+                documentation="pingu sends ICMP ping packets and reports packet loss"
+            )
+        }
+    )
+
+    prompt = task_profile_prompt(spec, purpose="repair")
+
+    assert "repair_hints" in prompt
+    assert "repair_playbook" in prompt
+    assert "Parsed: host=" in prompt
+    assert "implementation_playbook" not in prompt
 
 
 def test_implementer_prompts_include_task_profile():
@@ -108,3 +136,4 @@ def test_implementer_prompts_include_task_profile():
     prompt = messages[-1].content
     assert "Task strategy profile" in prompt
     assert "html_selector" in prompt
+    assert "HTMLParser" in prompt
