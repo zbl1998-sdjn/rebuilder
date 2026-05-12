@@ -38,6 +38,9 @@ Verified locally on Windows with Docker Desktop:
   `abishekvashok__cmatrix.5c082c6` ProgramBench info score improved from
   `77` to `82` (`415/508` counted tests; raw eval `674/769`) from the
   assets-disabled manual hotfix retry after assets ablation
+- Third non-zoxide official generalization baseline:
+  `jarun__nnn.cb2c535` ProgramBench info score `79` (`379/477` counted
+  tests; raw eval `1101/1796`) from a closed-loop, assets-disabled candidate
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
@@ -521,6 +524,8 @@ Completed:
 - Phase-level LLM usage metadata is now recorded when provider responses expose usage
 - Improved cmatrix official aggregate baseline: `415/508` counted tests,
   ProgramBench info score `82` from the assets-disabled manual hotfix retry
+- Official jarun nnn aggregate baseline: `379/477` counted tests,
+  ProgramBench info score `79` from a closed-loop, assets-disabled candidate
 - Official eval summaries can now print both raw and counted metrics when
   `--instance-id` is supplied, reducing scoring-scope mixups
 - Candidate ranking script scans completed `runs/**/result.json` files and

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-12T04:49:39.216285+00:00",
+  "instance_id": "jarun__nnn.cb2c535",
+  "model": "glm-5.1",
+  "config_path": "config\\settings.yaml",
+  "notes": "First official jarun nnn aggregate baseline from closed-loop candidate: 379/477 counted tests, score 79; raw eval 1101/1796; aggregate-only.",
+  "local": {
+    "status": "failed",
+    "resolved_rate": 0.821917808219178,
+    "holdout_resolved_rate": 0.8823529411764706,
+    "probes_conducted": 85,
+    "iterations_used": 3
+  },
+  "official": {
+    "passed_tests": 379,
+    "total_tests": 477,
+    "pass_rate": 0.7945492662473794,
+    "score": 79,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 0
+  },
+  "submission": {
+    "path": "runs\\programbench_official_eval\\submission_jarun_nnn_20260512\\jarun__nnn.cb2c535\\submission.tar.gz",
+    "sha256": "2d83d14c60cefe97c9d66e1483449c82e9deba2ce3a5481d4c970072ca4bc0fc"
+  }
+}
