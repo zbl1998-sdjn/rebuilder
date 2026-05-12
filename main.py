@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument("--config", default="config/settings.yaml", help="Path to config file")
     parser.add_argument("--output", default=None, help="Output directory for generated code")
     parser.add_argument("--max-repairs", type=int, default=None, help="Maximum repair iterations")
+    parser.add_argument("--probe-iterations", type=int, default=None, help="Maximum probe planning iterations")
     parser.add_argument(
         "--reference-docker-image",
         default=None,
@@ -185,7 +186,11 @@ def build_controller(
         max_repair_iterations=max_repairs,
         min_probe_coverage=controller_cfg.get("min_probe_coverage", 0.0),
         output_root=output_root,
-        probe_iterations=probe_cfg.get("max_probe_iterations", 30),
+        probe_iterations=(
+            args.probe_iterations
+            if getattr(args, "probe_iterations", None) is not None
+            else probe_cfg.get("max_probe_iterations", 30)
+        ),
         probe_timeout=probe_cfg.get("timeout_per_run", 10.0),
         internal_holdout_ratio=controller_cfg.get("internal_holdout_ratio", 0.0),
         holdout_seed=controller_cfg.get("holdout_seed", "rebuilder"),

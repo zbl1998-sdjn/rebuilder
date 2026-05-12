@@ -6,9 +6,10 @@ from core.session import RunSession
 from tests.test_probe_engine import MockLLMClient
 
 
-def args(max_repairs=None, output=None, static_output_assets="config"):
+def args(max_repairs=None, output=None, static_output_assets="config", probe_iterations=None):
     return SimpleNamespace(
         max_repairs=max_repairs,
+        probe_iterations=probe_iterations,
         output=output,
         replacement_executor=None,
         static_output_assets=static_output_assets,
@@ -52,6 +53,16 @@ def test_build_controller_lets_cli_override_repair_iterations(tmp_path):
     controller = build_controller(MockLLMClient(), config, args(max_repairs=2, output=str(tmp_path / "out")))
 
     assert controller.max_repair_iterations == 2
+
+
+def test_build_controller_lets_cli_override_probe_iterations(tmp_path):
+    config = {
+        "probe": {"max_probe_iterations": 12, "timeout_per_run": 3},
+        "controller": {"max_repair_iterations": 7, "min_probe_coverage": 0.5},
+    }
+    controller = build_controller(MockLLMClient(), config, args(probe_iterations=60, output=str(tmp_path / "out")))
+
+    assert controller.probe_iterations == 60
 
 
 def test_build_controller_uses_session_generated_path_when_output_not_set(tmp_path):

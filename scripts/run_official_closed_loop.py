@@ -43,6 +43,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--runs", default="runs/closed_loop_official", help="Closed-loop run root")
     parser.add_argument("--config", default="config/settings.yaml", help="ReBuilder config path")
+    parser.add_argument(
+        "--probe-iterations",
+        type=int,
+        default=60,
+        help="ReBuilder probe planning iterations; default supports the holdout case gate",
+    )
     parser.add_argument("--max-repairs", type=int, default=3, help="ReBuilder repair iterations")
     parser.add_argument(
         "--near-miss-holdout-rate",
@@ -155,6 +161,8 @@ def build_rebuilder_command(
         str(paths.output_root),
         "--max-repairs",
         str(repair_iterations),
+        "--probe-iterations",
+        str(args.probe_iterations),
         "--reference-docker-image",
         cleanroom_image,
         "--replacement-executor",
