@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-12T13:27:49.609726+00:00",
+  "instance_id": "burntsushi__xsv.f430466",
+  "model": "glm-5.1",
+  "config_path": "config/settings.yaml",
+  "notes": "Official closed-loop aggregate baseline: 484/1186 counted tests, score 41; raw eval 579/1317; aggregate-only.",
+  "local": {
+    "status": "partial",
+    "resolved_rate": 0.9555555555555556,
+    "holdout_resolved_rate": 0.8,
+    "probes_conducted": 50,
+    "iterations_used": 3
+  },
+  "official": {
+    "passed_tests": 484,
+    "total_tests": 1186,
+    "pass_rate": 0.40809443507588533,
+    "score": 41,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 1
+  },
+  "submission": {
+    "path": "runs\\programbench_official_eval\\xsv_repairnext_20260512\\burntsushi__xsv.f430466\\submission.tar.gz",
+    "sha256": "88a87f1d071af67dd7b32ebab3784a4a3d521e66bd50dba5ad953c8c7db0b818"
+  }
+}

@@ -57,6 +57,10 @@ Verified locally on Windows with Docker Desktop:
   tests; raw eval `720/2058`) from a holdout-gated min-50 closed-loop candidate.
   After the stdin fix, refreshed local holdout is `7/11`, so this is retained as
   a stale-gate local-vs-official gap datapoint.
+- Seventh non-zoxide official generalization baseline:
+  `burntsushi__xsv.f430466` ProgramBench info score `41` (`484/1186` counted
+  tests; raw eval `579/1317`) after stdin execution fixes and repair-next
+  continuation. Local exploration was `43/45`, with holdout `8/10`.
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
