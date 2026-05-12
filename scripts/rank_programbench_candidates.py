@@ -20,6 +20,7 @@ class CandidateRow:
     status: str
     resolved_rate: float
     holdout_resolved_rate: float | None
+    holdout_cases: int
     probes_conducted: int
     iterations_used: int
     static_output_assets_enabled: bool | None
@@ -43,6 +44,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--limit", type=int, default=20, help="Maximum rows to print")
     parser.add_argument(
+        "--min-holdout-cases",
+        type=int,
+        default=10,
+        help="Minimum holdout cases required for a reliable candidate ranking",
+    )
+    parser.add_argument(
         "--only-unofficial",
         action="store_true",
         help="Only show tasks without an existing official eval artifact",
@@ -56,6 +63,7 @@ def collect_candidates(
     *,
     baseline_root: Path | str = "baselines/programbench",
     only_unofficial: bool = False,
+    min_holdout_cases: int = 10,
 ) -> list[CandidateRow]:
     official_task_ids = discover_official_eval_task_ids(Path(official_eval_root))
     official_task_ids.update(discover_baseline_task_ids(Path(baseline_root)))
@@ -67,9 +75,9 @@ def collect_candidates(
         if only_unofficial and row.has_official_eval:
             continue
         current = best_by_task.get(row.task_id)
-        if current is None or candidate_sort_key(row) > candidate_sort_key(current):
+        if current is None or candidate_sort_key(row, min_holdout_cases) > candidate_sort_key(current, min_holdout_cases):
             best_by_task[row.task_id] = row
-    return sorted(best_by_task.values(), key=candidate_sort_key, reverse=True)
+    return sorted(best_by_task.values(), key=lambda row: candidate_sort_key(row, min_holdout_cases), reverse=True)
 
 
 def discover_official_eval_task_ids(root: Path) -> set[str]:
@@ -112,6 +120,7 @@ def read_candidate_row(result_path: Path, official_task_ids: set[str]) -> Candid
         status=str(payload.get("status", "unknown")),
         resolved_rate=as_float(payload.get("resolved_rate")),
         holdout_resolved_rate=as_optional_float(payload.get("holdout_resolved_rate")),
+        holdout_cases=int(payload.get("holdout_cases", 0) or 0),
         probes_conducted=int(payload.get("probes_conducted", 0) or 0),
         iterations_used=int(payload.get("iterations_used", 0) or 0),
         static_output_assets_enabled=as_optional_bool(metadata.get("static_output_assets_enabled")),
@@ -130,10 +139,12 @@ def infer_task_id(result_path: Path) -> str | None:
     return result_path.parent.name or None
 
 
-def candidate_sort_key(row: CandidateRow) -> tuple[int, float, float, float]:
+def candidate_sort_key(row: CandidateRow, min_holdout_cases: int = 10) -> tuple[int, int, float, float, float]:
     holdout = row.holdout_resolved_rate if row.holdout_resolved_rate is not None else -1.0
+    enough_holdout = row.holdout_cases >= min_holdout_cases
     return (
         0 if row.has_official_eval else 1,
+        1 if enough_holdout else 0,
         holdout,
         row.resolved_rate,
         row.modified_at,
@@ -176,12 +187,12 @@ def format_bool(value: bool | None) -> str:
 
 def write_markdown(rows: list[CandidateRow], limit: int) -> None:
     selected = rows[: max(0, limit)]
-    print("| rank | task | local | holdout | status | probes | repairs | assets | official eval | result |")
-    print("| ---: | --- | ---: | ---: | --- | ---: | ---: | --- | --- | --- |")
+    print("| rank | task | local | holdout | holdout cases | status | probes | repairs | assets | official eval | result |")
+    print("| ---: | --- | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | --- |")
     for index, row in enumerate(selected, start=1):
         print(
             f"| {index} | {row.task_id} | {format_rate(row.resolved_rate)} | "
-            f"{format_rate(row.holdout_resolved_rate)} | {row.status} | "
+            f"{format_rate(row.holdout_resolved_rate)} | {row.holdout_cases} | {row.status} | "
             f"{row.probes_conducted} | {row.iterations_used} | "
             f"{format_bool(row.static_output_assets_enabled)} | "
             f"{format_bool(row.has_official_eval)} | {row.result_path} |"
@@ -195,6 +206,7 @@ def main(argv: list[str] | None = None) -> None:
         args.official_eval_root,
         baseline_root=args.baseline_root,
         only_unofficial=args.only_unofficial,
+        min_holdout_cases=args.min_holdout_cases,
     )
     write_markdown(rows, args.limit)
 

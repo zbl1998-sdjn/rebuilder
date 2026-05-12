@@ -3,7 +3,7 @@ import json
 from scripts.rank_programbench_candidates import collect_candidates, discover_baseline_task_ids, format_rate
 
 
-def write_result(path, task_id, resolved, holdout, *, status="failed"):
+def write_result(path, task_id, resolved, holdout, *, status="failed", holdout_cases=10):
     target = path / task_id / "generated" / task_id
     target.mkdir(parents=True)
     (target / "result.json").write_text(
@@ -13,6 +13,7 @@ def write_result(path, task_id, resolved, holdout, *, status="failed"):
                 "status": status,
                 "resolved_rate": resolved,
                 "holdout_resolved_rate": holdout,
+                "holdout_cases": holdout_cases,
                 "probes_conducted": 10,
                 "iterations_used": 1,
                 "implementation_metadata": {"static_output_assets_enabled": False},
@@ -38,6 +39,30 @@ def test_collect_candidates_prioritizes_unofficial_high_holdout(tmp_path):
     assert [row.task_id for row in rows] == ["task.b", "task.a", "task.c"]
     assert rows[0].holdout_resolved_rate == 1.0
     assert rows[-1].has_official_eval
+
+
+def test_collect_candidates_prioritizes_reliable_holdout_case_count(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    write_result(runs / "run_a", "task.a", 0.9, 0.95, holdout_cases=4)
+    write_result(runs / "run_b", "task.b", 0.7, 0.6, holdout_cases=12)
+
+    rows = collect_candidates(runs, official, min_holdout_cases=10)
+
+    assert [row.task_id for row in rows] == ["task.b", "task.a"]
+    assert rows[0].holdout_cases == 12
+
+
+def test_collect_candidates_prefers_reliable_run_for_same_task(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    write_result(runs / "run_low_sample", "task.a", 0.9, 0.95, holdout_cases=4)
+    write_result(runs / "run_reliable", "task.a", 0.8, 0.7, holdout_cases=12)
+
+    rows = collect_candidates(runs, official, min_holdout_cases=10)
+
+    assert len(rows) == 1
+    assert rows[0].holdout_cases == 12
 
 
 def test_collect_candidates_can_filter_official_tasks(tmp_path):
