@@ -95,7 +95,14 @@ class WSLExecutorBackend(ExecutorBackend):
         workdir_wsl = self._to_wsl_path(workdir)
         executable_wsl = self._to_wsl_path(executable)
         tokens = self._command_tokens(executable, executable_wsl, test_case)
-        shell_script = f"cd {shlex.quote(workdir_wsl)} && {shlex.join(tokens)}"
+        timeout_seconds = max(1, int(self.timeout))
+        timed_tokens = [
+            "timeout",
+            "--kill-after=1s",
+            f"{timeout_seconds}s",
+            *tokens,
+        ]
+        shell_script = f"cd {shlex.quote(workdir_wsl)} && {shlex.join(timed_tokens)}"
         return ["wsl", "bash", "-lc", shell_script]
 
     def _command_tokens(

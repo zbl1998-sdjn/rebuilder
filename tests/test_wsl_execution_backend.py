@@ -42,6 +42,7 @@ async def test_wsl_executor_runs_python_with_linux_paths_and_env(tmp_path):
     assert runner.command[:3] == ["wsl", "bash", "-lc"]
     shell_script = runner.command[3]
     assert "python3" in shell_script
+    assert "timeout --kill-after=1s 7s" in shell_script
     assert "/mnt/" in shell_script
     assert "DATA_DIR=/mnt/" in shell_script
     assert "PLAIN=x" in shell_script
