@@ -88,6 +88,31 @@ def test_parse_help_output(mock_llm, mock_executable):
     # Note: regex only captures --long-flags, not -o short forms
 
 
+def test_parse_help_output_discovers_subcommands_and_io_modes(mock_llm, mock_executable):
+    engine = ProbeEngine(
+        executable=mock_executable,
+        documentation="Test",
+        llm_client=mock_llm,
+    )
+    help_text = """
+Usage:
+  tool <command> [FILE|-]
+
+Commands:
+  count       Count records
+  select      Select columns
+
+Options:
+  --output FILE  Write to output file
+"""
+    engine._parse_help_output(help_text)
+
+    assert engine.cli_surface.subcommands == ["count", "select"]
+    assert engine.cli_surface.stdin_mode is True
+    assert engine.cli_surface.file_input_mode is True
+    assert engine.cli_surface.file_output_mode is True
+
+
 @pytest.mark.asyncio
 async def test_probe_cli_surface_parses_help_from_stderr(mock_llm, mock_executable, monkeypatch):
     engine = ProbeEngine(
@@ -136,6 +161,37 @@ async def test_probe_engine_adds_supplemental_cases_until_min_samples(mock_llm, 
 
     assert len(corpus) >= 12
     assert any("supplemental" in sample.tags for sample in corpus)
+
+
+@pytest.mark.asyncio
+async def test_probe_engine_runs_coverage_gap_probes_for_min_coverage(mock_llm, mock_executable, monkeypatch):
+    engine = ProbeEngine(
+        executable=mock_executable,
+        documentation="Test",
+        llm_client=mock_llm,
+        max_iterations=0,
+        min_coverage=0.8,
+    )
+    executed = []
+
+    async def fake_execute(tc, tags):
+        from core.data_models import TestResult
+
+        executed.append((tc.name, tuple(tc.args), tuple(tags)))
+        if tc.args == ["--help"]:
+            return TestResult(stdout="Usage:\nCommands:\n  count       Count rows\nOptions:\n  --json      JSON output\n")
+        if tc.args == ["--__rebuilder_invalid_flag__"]:
+            return TestResult(stderr="unknown flag\n", exit_code=2)
+        return TestResult(stdout="ok\n")
+
+    monkeypatch.setattr(engine, "_execute_test", fake_execute)
+
+    corpus = await engine.probe()
+
+    assert any(sample.test_case.name == "probe_flag_json" for sample in corpus)
+    assert any(sample.test_case.name == "probe_subcommand_count_help" for sample in corpus)
+    assert any("coverage_gap" in sample.tags for sample in corpus)
+    assert any(args == ("--__rebuilder_invalid_flag__",) for _name, args, _tags in executed)
 
 
 def test_probe_engine_parses_embedded_test_case_json(mock_llm, mock_executable):

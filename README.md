@@ -15,7 +15,7 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `219 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- Full unit test suite: `222 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
 - GLM-5.1 coding-plan endpoint smoke tested
 - Official ProgramBench cleanroom zoxide sample runs end-to-end
 - Frozen zoxide local smoke baseline: `16.7%` local differential equivalence
@@ -70,6 +70,9 @@ Verified locally on Windows with Docker Desktop:
   `95/577` from the Windows-local validation candidate, `76/577` from the
   WSL/Linux validation candidate, and `78/577` from the stateful WSL candidate
 - Mini-lab runner can aggregate multiple cleanroom task runs
+- Probe generalization upgraded from sample-count filling to behavior-coverage
+  filling: discovered flags, subcommands, stdin/file modes, nonzero exits, and
+  missing behavior modes are tracked and logged in result metadata.
 
 The zoxide score is not high, but the important milestone is that the full
 cleanroom loop now runs:
@@ -151,6 +154,7 @@ Supporting systems:
 - `core/programbench`: sample metadata, cleanroom workspace export, adapters
 - `core/execution`: local and Docker execution backends
 - `core/probing`: deterministic corpus splitting, stateful plans, shell-init probe planning, and file I/O probe planning
+- `core/coverage`: behavior-only coverage reports that drive coverage-gap probing
 - `core/implementation`: implementation-time generated asset guardrails
 - `core/repair`: failure clustering
 - `core/evaluation`: official eval summaries and exploration failure reports

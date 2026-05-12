@@ -5,9 +5,11 @@ Probe Engine: Systematically explore the behavior of a black-box executable.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import List, Optional, Set
 
+from core.coverage import BehavioralCoverageAnalyzer
 from core.data_models import (
     BehaviorSample,
     CLISurface,
@@ -19,6 +21,7 @@ from core.data_models import (
 from core.evidence import EvidenceRecorder, EvidenceStore
 from core.evidence.models import test_case_fingerprint
 from core.llm_output import extract_json_value
+from core.probing.planner import ProbePlanner
 from core.probing.file_io import FileIOProbePlanner
 from core.probing.shell_init import ShellInitProbePlanner
 from core.probing.stateful import StatefulProbePlanner, StatefulProbeRunner
@@ -48,6 +51,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         llm_client: BaseLLMClient,
         max_iterations: int = 50,
         min_samples: int = 0,
+        min_coverage: float = 0.0,
         timeout: float = 10.0,
         evidence_store: EvidenceStore | None = None,
         executor_backend=None,
@@ -57,6 +61,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         self.llm = llm_client
         self.max_iterations = max_iterations
         self.min_samples = max(0, int(min_samples))
+        self.min_coverage = max(0.0, min(1.0, float(min_coverage)))
         self.timeout = timeout
         self.executor = SandboxExecutor(executable, timeout, backend=executor_backend)
         self.evidence_recorder = (
@@ -91,7 +96,8 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
 
         # Phase 4: Deterministic supplemental probes for official-gated runs.
         await self._probe_minimum_corpus()
-         
+        await self._probe_until_coverage_target()
+          
         return self.corpus
 
     async def _probe_stateful_plans(self):
@@ -161,8 +167,31 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
     
     def _parse_help_output(self, text: str):
         """Naive parser to extract flags from help text."""
-        import re
+        lowered = text.lower()
+        self.cli_surface.stdin_mode = self.cli_surface.stdin_mode or any(
+            token in lowered for token in ["stdin", "[file|url|-]", "|-]", " -]"]
+        )
+        self.cli_surface.file_input_mode = self.cli_surface.file_input_mode or any(
+            token in lowered for token in ["[file", "<file", "input file", "file to", "from a file"]
+        )
+        self.cli_surface.file_output_mode = self.cli_surface.file_output_mode or any(
+            token in lowered for token in ["output file", "--output", "write to", "save to"]
+        )
+        in_commands = False
         for line in text.splitlines():
+            stripped = line.strip()
+            header = stripped.rstrip(":").lower()
+            if header in {"commands", "subcommands"}:
+                in_commands = True
+                continue
+            if header in {"options", "flags", "arguments", "args", "help options", "application options"}:
+                in_commands = False
+            if in_commands:
+                command_match = re.match(r"^\s{2,}([A-Za-z][\w-]+)\s{2,}", line)
+                if command_match:
+                    command = command_match.group(1)
+                    if command not in self.cli_surface.subcommands:
+                        self.cli_surface.subcommands.append(command)
             for m in re.finditer(r"(--[\w-]+)(?:\s+([A-Z_]+))?", line):
                 flag_name = m.group(1)
                 type_hint = m.group(2) or "bool"
@@ -170,6 +199,25 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
                     self.cli_surface.flags.append(
                         FlagSpec(name=flag_name, type_hint=type_hint.lower(), description=line.strip())
                     )
+
+    async def _probe_coverage_gaps(self):
+        """Run deterministic probes for currently uncovered behavior dimensions."""
+        coverage = BehavioralCoverageAnalyzer().analyze(self.corpus, self.cli_surface)
+        for tc in ProbePlanner().plan(coverage=coverage):
+            await self._run_deterministic_probe(tc, base_tags=["coverage_gap"])
+
+    async def _probe_until_coverage_target(self):
+        """Use deterministic probes to reach configured behavior coverage where possible."""
+        if self.min_coverage <= 0:
+            return
+        for _ in range(3):
+            coverage = BehavioralCoverageAnalyzer().analyze(self.corpus, self.cli_surface)
+            if coverage.coverage_score >= self.min_coverage:
+                break
+            before = len(self.corpus)
+            await self._probe_coverage_gaps()
+            if len(self.corpus) == before:
+                break
     
     async def _generate_test_cases(self, iteration: int) -> List[TestCase]:
         """Use LLM to generate the next batch of test cases based on observed behavior so far."""
@@ -260,26 +308,36 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         for tc in self._supplemental_test_cases():
             if len(self.corpus) >= self.min_samples:
                 break
-            fingerprint = test_case_fingerprint(tc)
-            if fingerprint in self.seen_tests:
-                continue
-            self.seen_tests.add(fingerprint)
-            result = await self._execute_test(tc, tags=["supplemental"])
-            tags = ["supplemental"]
-            if result.exit_code != 0:
-                tags.append("error_mode")
-            if result.output_files:
-                tags.append("file_output")
-            self.corpus.append(BehaviorSample(test_case=tc, observed_result=result, tags=tags))
+            await self._run_deterministic_probe(tc, base_tags=["supplemental"])
+
+    async def _run_deterministic_probe(self, tc: TestCase, base_tags: list[str]) -> bool:
+        fingerprint = test_case_fingerprint(tc)
+        if fingerprint in self.seen_tests:
+            return False
+        self.seen_tests.add(fingerprint)
+        result = await self._execute_test(tc, tags=base_tags)
+        tags = list(base_tags)
+        if result.exit_code != 0:
+            tags.append("error_mode")
+        if result.timeout_triggered:
+            tags.append("timeout")
+        if result.output_files:
+            tags.append("file_output")
+        self.corpus.append(BehaviorSample(test_case=tc, observed_result=result, tags=tags))
+        return True
 
     def _supplemental_test_cases(self) -> list[TestCase]:
         json_text = '{"name":"alice","nums":[1,2],"nested":{"ok":true}}\n'
+        csv_text = "name,age\nalice,30\nbob,25\n"
+        html_text = "<html><body><a href=\"/x\">link</a><p>Hello</p></body></html>\n"
         cases = [
             TestCase(name="supplemental_stdin_object", args=[], stdin=json_text, description="Valid JSON object on stdin"),
             TestCase(name="supplemental_stdin_array", args=[], stdin='[{"a":1},{"b":2}]\n', description="Valid JSON array on stdin"),
             TestCase(name="supplemental_stdin_scalar", args=[], stdin='"value"\n', description="Valid JSON scalar on stdin"),
             TestCase(name="supplemental_stdin_null", args=[], stdin="null\n", description="JSON null on stdin"),
             TestCase(name="supplemental_stdin_malformed", args=[], stdin="{not-json}\n", description="Malformed stdin"),
+            TestCase(name="supplemental_csv_stdin", args=[], stdin=csv_text, description="CSV-like stdin"),
+            TestCase(name="supplemental_html_stdin", args=[], stdin=html_text, description="HTML-like stdin"),
             TestCase(name="supplemental_dash_stdin", args=["-"], stdin=json_text, description="Explicit stdin marker"),
             TestCase(
                 name="supplemental_file_json",
@@ -287,7 +345,41 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
                 input_files={"input.json": json_text.encode("utf-8")},
                 description="Read JSON-like input from a file",
             ),
+            TestCase(
+                name="supplemental_file_csv",
+                args=["input.csv"],
+                input_files={"input.csv": csv_text.encode("utf-8")},
+                description="Read CSV-like input from a file",
+            ),
+            TestCase(
+                name="supplemental_file_html",
+                args=["input.html"],
+                input_files={"input.html": html_text.encode("utf-8")},
+                description="Read HTML-like input from a file",
+            ),
+            TestCase(
+                name="supplemental_invalid_flag",
+                args=["--__rebuilder_invalid_flag__"],
+                description="Invalid flag error behavior",
+            ),
         ]
+        for command in sorted(self.cli_surface.subcommands):
+            safe_command = command.replace("-", "_")
+            cases.append(
+                TestCase(
+                    name=f"supplemental_subcommand_{safe_command}_help",
+                    args=[command, "--help"],
+                    description=f"Probe documented subcommand {command} help",
+                )
+            )
+            cases.append(
+                TestCase(
+                    name=f"supplemental_subcommand_{safe_command}_stdin",
+                    args=[command],
+                    stdin=csv_text,
+                    description=f"Probe documented subcommand {command} with stdin",
+                )
+            )
         for flag in sorted(self.cli_surface.flags, key=lambda item: item.name):
             value = self._sample_flag_value(flag.name, flag.type_hint, flag.description)
             flag_args = [flag.name] if value is None else [flag.name, value]

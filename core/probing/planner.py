@@ -26,6 +26,48 @@ class ProbePlanner:
                         description=f"Probe uncovered documented flag {flag}",
                     )
                 )
+            for subcommand in sorted(coverage.uncovered_subcommands):
+                probes.append(
+                    TestCase(
+                        name=f"probe_subcommand_{subcommand}_help",
+                        args=[subcommand, "--help"],
+                        description=f"Probe uncovered documented subcommand {subcommand}",
+                    )
+                )
+            if "stdin" in coverage.missing_modes:
+                probes.append(
+                    TestCase(
+                        name="probe_mode_stdin_json",
+                        stdin='{"probe":true,"items":[1,2]}\n',
+                        description="Probe stdin input mode with structured data",
+                    )
+                )
+            if "explicit_stdin" in coverage.missing_modes:
+                probes.append(
+                    TestCase(
+                        name="probe_mode_explicit_stdin",
+                        args=["-"],
+                        stdin='{"probe":true}\n',
+                        description="Probe explicit '-' stdin marker",
+                    )
+                )
+            if "file_input" in coverage.missing_modes:
+                probes.append(
+                    TestCase(
+                        name="probe_mode_file_input",
+                        args=["input.txt"],
+                        input_files={"input.txt": b"a,b\n1,2\n"},
+                        description="Probe file input mode",
+                    )
+                )
+            if "nonzero_exit" in coverage.missing_modes:
+                probes.append(
+                    TestCase(
+                        name="probe_mode_invalid_flag",
+                        args=["--__rebuilder_invalid_flag__"],
+                        description="Probe invalid-option error behavior",
+                    )
+                )
 
         if hypotheses:
             for hypothesis in hypotheses.unresolved():

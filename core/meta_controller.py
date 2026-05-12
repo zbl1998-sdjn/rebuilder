@@ -15,6 +15,7 @@ from rich.progress import Progress, TextColumn
 
 from core.data_models import (
     BehaviorSample,
+    CLISurface,
     Codebase,
     DiffReport,
     ProgramSpec,
@@ -29,6 +30,7 @@ from core.implementer_agent import ImplementerAgent
 from core.differential_tester import DifferentialTester
 from core.evidence import EvidenceStore
 from core.evaluation import FailureReportWriter
+from core.coverage import BehavioralCoverageAnalyzer
 from core.repair.clustering import FailureClusterer
 from core.repair_loop import RepairLoop
 from core.session import RunSession
@@ -89,6 +91,7 @@ class MetaController:
         self.spec: Optional[ProgramSpec] = None
         self.blueprint: Optional[ArchitectureBlueprint] = None
         self.codebase: Optional[Codebase] = None
+        self.probe_coverage_report = None
         self.logs: List[str] = []
     
     def log(self, message: str):
@@ -113,6 +116,7 @@ class MetaController:
                 llm_client=self.llm,
                 max_iterations=self.probe_iterations,
                 min_samples=self.min_probe_samples,
+                min_coverage=self.min_probe_coverage,
                 timeout=self.probe_timeout,
                 evidence_store=self.evidence_store,
                 executor_backend=self.reference_executor_backend,
@@ -122,6 +126,15 @@ class MetaController:
             progress.update(probe_task, completed=True)
         
         self.log(f"Probe complete: {len(corpus)} behavior samples collected")
+        self.probe_coverage_report = BehavioralCoverageAnalyzer().analyze(
+            corpus,
+            (self.probe_engine.cli_surface if self.probe_engine else None) or CLISurface(),
+        )
+        self.log(
+            "Probe coverage: "
+            f"{self.probe_coverage_report.coverage_score:.1%} "
+            f"(missing: {', '.join(sorted(self.probe_coverage_report.missing_modes)) or 'none'})"
+        )
         corpus_split = CorpusSplitter(
             holdout_ratio=self.internal_holdout_ratio,
             seed=self.holdout_seed,
@@ -344,14 +357,17 @@ class MetaController:
 
     def _implementation_metadata(self) -> dict:
         llm_usage = self.llm.usage_summary()
+        probe_coverage = self.probe_coverage_report.model_dump(mode="json") if self.probe_coverage_report else None
         if not self.codebase:
             return {
                 "static_output_assets_enabled": self.enable_static_output_assets,
                 "llm_usage": llm_usage,
+                "probe_coverage": probe_coverage,
             }
         return {
             "static_output_assets_enabled": self.enable_static_output_assets,
             "llm_usage": llm_usage,
+            "probe_coverage": probe_coverage,
             **self.codebase.generation_metadata,
         }
 
