@@ -50,6 +50,7 @@ def parse_args():
     parser.add_argument("--output", default=None, help="Output directory for generated code")
     parser.add_argument("--max-repairs", type=int, default=None, help="Maximum repair iterations")
     parser.add_argument("--probe-iterations", type=int, default=None, help="Maximum probe planning iterations")
+    parser.add_argument("--min-probe-samples", type=int, default=None, help="Minimum behavior samples to collect")
     parser.add_argument(
         "--reference-docker-image",
         default=None,
@@ -190,6 +191,11 @@ def build_controller(
             args.probe_iterations
             if getattr(args, "probe_iterations", None) is not None
             else probe_cfg.get("max_probe_iterations", 30)
+        ),
+        min_probe_samples=(
+            args.min_probe_samples
+            if getattr(args, "min_probe_samples", None) is not None
+            else probe_cfg.get("min_samples", 0)
         ),
         probe_timeout=probe_cfg.get("timeout_per_run", 10.0),
         internal_holdout_ratio=controller_cfg.get("internal_holdout_ratio", 0.0),

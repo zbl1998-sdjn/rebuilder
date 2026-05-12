@@ -486,8 +486,8 @@ python scripts\run_official_closed_loop.py burntsushi__xsv.f430466 `
   --force
 ```
 
-The closed-loop runner keeps official eval gated behind local holdout. It defaults to `--probe-iterations 60` so the
-internal split can produce enough holdout cases. It requires both a passing holdout rate
+The closed-loop runner keeps official eval gated behind local holdout. It defaults to `--probe-iterations 60` and
+`--min-probe-samples 50` so the internal split can produce enough holdout cases. It requires both a passing holdout rate
 (`--min-holdout-rate`, default `0.8`) and enough holdout cases (`--min-holdout-cases`, default `10`) before packaging.
 If a run lands in the near-miss band (`--near-miss-holdout-rate`, default `0.75`) but below the holdout-rate gate, it
 automatically performs one deeper local repair retry with `--near-miss-max-repairs` (default `5`) before deciding whether

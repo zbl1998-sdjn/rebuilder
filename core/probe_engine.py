@@ -47,6 +47,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         documentation: str,
         llm_client: BaseLLMClient,
         max_iterations: int = 50,
+        min_samples: int = 0,
         timeout: float = 10.0,
         evidence_store: EvidenceStore | None = None,
         executor_backend=None,
@@ -55,6 +56,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         self.documentation = documentation
         self.llm = llm_client
         self.max_iterations = max_iterations
+        self.min_samples = max(0, int(min_samples))
         self.timeout = timeout
         self.executor = SandboxExecutor(executable, timeout, backend=executor_backend)
         self.evidence_recorder = (
@@ -84,7 +86,10 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         
         # Phase 3: Systematic edge case probing
         await self._probe_edge_cases()
-        
+
+        # Phase 4: Deterministic supplemental probes for official-gated runs.
+        await self._probe_minimum_corpus()
+         
         return self.corpus
 
     async def _probe_stateful_plans(self):
@@ -148,15 +153,15 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
             self.corpus.append(BehaviorSample(test_case=tc, observed_result=result, tags=["cli_discovery"]))
             
             # Simple parsing of --help output
-            if "--" in result.stdout:
-                self._parse_help_output(result.stdout)
+            help_text = "\n".join(part for part in [result.stdout, result.stderr] if part)
+            if "--" in help_text:
+                self._parse_help_output(help_text)
     
     def _parse_help_output(self, text: str):
         """Naive parser to extract flags from help text."""
         import re
         for line in text.splitlines():
-            m = re.search(r"(--[\w-]+)(?:\s+([A-Z_]+))?", line)
-            if m:
+            for m in re.finditer(r"(--[\w-]+)(?:\s+([A-Z_]+))?", line):
                 flag_name = m.group(1)
                 type_hint = m.group(2) or "bool"
                 if not any(f.name == flag_name for f in self.cli_surface.flags):
@@ -209,9 +214,9 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
                     description=item.get("description", ""),
                 )
                 # Deduplicate by hash
-                h = hash(test_case_fingerprint(tc))
-                if h not in self.seen_tests:
-                    self.seen_tests.add(h)
+                fingerprint = test_case_fingerprint(tc)
+                if fingerprint not in self.seen_tests:
+                    self.seen_tests.add(fingerprint)
                     cases.append(tc)
             return cases
         except ValueError:
@@ -245,6 +250,74 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         ]
         for tc in edge_cases:
             await self._run_test(tc)
+
+    async def _probe_minimum_corpus(self):
+        """Add deterministic, cleanroom-safe probes until the corpus reaches min_samples."""
+        if len(self.corpus) >= self.min_samples:
+            return
+        for tc in self._supplemental_test_cases():
+            if len(self.corpus) >= self.min_samples:
+                break
+            fingerprint = test_case_fingerprint(tc)
+            if fingerprint in self.seen_tests:
+                continue
+            self.seen_tests.add(fingerprint)
+            result = await self._execute_test(tc, tags=["supplemental"])
+            tags = ["supplemental"]
+            if result.exit_code != 0:
+                tags.append("error_mode")
+            if result.output_files:
+                tags.append("file_output")
+            self.corpus.append(BehaviorSample(test_case=tc, observed_result=result, tags=tags))
+
+    def _supplemental_test_cases(self) -> list[TestCase]:
+        json_text = '{"name":"alice","nums":[1,2],"nested":{"ok":true}}\n'
+        cases = [
+            TestCase(name="supplemental_stdin_object", args=[], stdin=json_text, description="Valid JSON object on stdin"),
+            TestCase(name="supplemental_stdin_array", args=[], stdin='[{"a":1},{"b":2}]\n', description="Valid JSON array on stdin"),
+            TestCase(name="supplemental_stdin_scalar", args=[], stdin='"value"\n', description="Valid JSON scalar on stdin"),
+            TestCase(name="supplemental_stdin_null", args=[], stdin="null\n", description="JSON null on stdin"),
+            TestCase(name="supplemental_stdin_malformed", args=[], stdin="{not-json}\n", description="Malformed stdin"),
+            TestCase(name="supplemental_dash_stdin", args=["-"], stdin=json_text, description="Explicit stdin marker"),
+            TestCase(
+                name="supplemental_file_json",
+                args=["input.json"],
+                input_files={"input.json": json_text.encode("utf-8")},
+                description="Read JSON-like input from a file",
+            ),
+        ]
+        for flag in sorted(self.cli_surface.flags, key=lambda item: item.name):
+            value = self._sample_flag_value(flag.name, flag.type_hint, flag.description)
+            flag_args = [flag.name] if value is None else [flag.name, value]
+            cases.append(
+                TestCase(
+                    name=f"supplemental_flag_{flag.name.lstrip('-').replace('-', '_')}",
+                    args=flag_args,
+                    stdin=json_text,
+                    description=f"Probe discovered flag {flag.name}",
+                )
+            )
+            cases.append(
+                TestCase(
+                    name=f"supplemental_flag_{flag.name.lstrip('-').replace('-', '_')}_dash",
+                    args=[*flag_args, "-"],
+                    stdin=json_text,
+                    description=f"Probe discovered flag {flag.name} with explicit stdin",
+                )
+            )
+        return cases
+
+    def _sample_flag_value(self, flag_name: str, type_hint: str, description: str) -> str | None:
+        text = f"{flag_name} {type_hint} {description}".lower()
+        if type_hint not in {"bool", ""}:
+            return "1"
+        if any(token in text for token in ["proxy", "noproxy"]):
+            return "http://127.0.0.1:9"
+        if any(token in text for token in ["file", "path", "output", "input"]):
+            return "input.json"
+        if any(token in text for token in ["count", "length", "skip", "size", "width", "number"]):
+            return "1"
+        return None
     
     def _build_observation_summary(self) -> str:
         """Create a concise summary of observed behaviors for the LLM."""

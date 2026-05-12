@@ -6,10 +6,11 @@ from core.session import RunSession
 from tests.test_probe_engine import MockLLMClient
 
 
-def args(max_repairs=None, output=None, static_output_assets="config", probe_iterations=None):
+def args(max_repairs=None, output=None, static_output_assets="config", probe_iterations=None, min_probe_samples=None):
     return SimpleNamespace(
         max_repairs=max_repairs,
         probe_iterations=probe_iterations,
+        min_probe_samples=min_probe_samples,
         output=output,
         replacement_executor=None,
         static_output_assets=static_output_assets,
@@ -18,7 +19,7 @@ def args(max_repairs=None, output=None, static_output_assets="config", probe_ite
 
 def test_build_controller_uses_yaml_config_when_cli_does_not_override(tmp_path):
     config = {
-        "probe": {"max_probe_iterations": 12, "timeout_per_run": 3},
+        "probe": {"max_probe_iterations": 12, "min_samples": 24, "timeout_per_run": 3},
         "architect": {
             "preferred_languages": ["python"],
             "complexity_threshold": 4,
@@ -36,6 +37,7 @@ def test_build_controller_uses_yaml_config_when_cli_does_not_override(tmp_path):
     assert controller.max_repair_iterations == 7
     assert controller.min_probe_coverage == 0.5
     assert controller.probe_iterations == 12
+    assert controller.min_probe_samples == 24
     assert controller.probe_timeout == 3
     assert controller.output_root == tmp_path / "out"
     assert controller.internal_holdout_ratio == 0.25
@@ -63,6 +65,16 @@ def test_build_controller_lets_cli_override_probe_iterations(tmp_path):
     controller = build_controller(MockLLMClient(), config, args(probe_iterations=60, output=str(tmp_path / "out")))
 
     assert controller.probe_iterations == 60
+
+
+def test_build_controller_lets_cli_override_min_probe_samples(tmp_path):
+    config = {
+        "probe": {"max_probe_iterations": 12, "min_samples": 24, "timeout_per_run": 3},
+        "controller": {"max_repair_iterations": 7, "min_probe_coverage": 0.5},
+    }
+    controller = build_controller(MockLLMClient(), config, args(min_probe_samples=50, output=str(tmp_path / "out")))
+
+    assert controller.min_probe_samples == 50
 
 
 def test_build_controller_uses_session_generated_path_when_output_not_set(tmp_path):

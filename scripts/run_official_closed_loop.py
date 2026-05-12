@@ -49,6 +49,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=60,
         help="ReBuilder probe planning iterations; default supports the holdout case gate",
     )
+    parser.add_argument(
+        "--min-probe-samples",
+        type=int,
+        default=50,
+        help="Minimum ReBuilder behavior samples before implementation; default supports the holdout case gate",
+    )
     parser.add_argument("--max-repairs", type=int, default=3, help="ReBuilder repair iterations")
     parser.add_argument(
         "--near-miss-holdout-rate",
@@ -163,6 +169,8 @@ def build_rebuilder_command(
         str(repair_iterations),
         "--probe-iterations",
         str(args.probe_iterations),
+        "--min-probe-samples",
+        str(args.min_probe_samples),
         "--reference-docker-image",
         cleanroom_image,
         "--replacement-executor",

@@ -53,6 +53,7 @@ class MetaController:
         min_probe_coverage: float = 0.0,
         output_root: Path | str = "./output",
         probe_iterations: int = 30,
+        min_probe_samples: int = 0,
         probe_timeout: float = 10.0,
         internal_holdout_ratio: float = 0.0,
         holdout_seed: str = "rebuilder",
@@ -70,6 +71,7 @@ class MetaController:
         self.min_probe_coverage = min_probe_coverage
         self.output_root = Path(output_root)
         self.probe_iterations = probe_iterations
+        self.min_probe_samples = max(0, int(min_probe_samples))
         self.probe_timeout = probe_timeout
         self.internal_holdout_ratio = internal_holdout_ratio
         self.holdout_seed = holdout_seed
@@ -110,6 +112,7 @@ class MetaController:
                 documentation=documentation,
                 llm_client=self.llm,
                 max_iterations=self.probe_iterations,
+                min_samples=self.min_probe_samples,
                 timeout=self.probe_timeout,
                 evidence_store=self.evidence_store,
                 executor_backend=self.reference_executor_backend,

@@ -18,6 +18,7 @@ def args(**overrides):
         "runs": "runs/closed_loop",
         "config": "config/settings.yaml",
         "probe_iterations": 60,
+        "min_probe_samples": 50,
         "max_repairs": 3,
         "replacement_executor": "wsl",
         "static_output_assets": "disabled",
@@ -62,6 +63,7 @@ def test_build_rebuilder_command_uses_cleanroom_image_and_wsl_executor():
     assert "programbench/owner_1776_repo.abcdef0:task_cleanroom" in command
     assert command[-2:] == ["--static-output-assets", "disabled"]
     assert command[command.index("--probe-iterations") + 1] == "60"
+    assert command[command.index("--min-probe-samples") + 1] == "50"
     assert "wsl" in command
 
 

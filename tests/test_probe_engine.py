@@ -88,6 +88,56 @@ def test_parse_help_output(mock_llm, mock_executable):
     # Note: regex only captures --long-flags, not -o short forms
 
 
+@pytest.mark.asyncio
+async def test_probe_cli_surface_parses_help_from_stderr(mock_llm, mock_executable, monkeypatch):
+    engine = ProbeEngine(
+        executable=mock_executable,
+        documentation="A tool that prints help to stderr",
+        llm_client=mock_llm,
+        max_iterations=0,
+    )
+
+    async def fake_execute(tc, tags):
+        from core.data_models import TestResult
+
+        if tc.args == ["--help"]:
+            return TestResult(stderr="Usage:\n  tool --json --no-sort\n")
+        return TestResult()
+
+    monkeypatch.setattr(engine, "_execute_test", fake_execute)
+
+    await engine._probe_cli_surface()
+
+    flag_names = [flag.name for flag in engine.cli_surface.flags]
+    assert "--json" in flag_names
+    assert "--no-sort" in flag_names
+
+
+@pytest.mark.asyncio
+async def test_probe_engine_adds_supplemental_cases_until_min_samples(mock_llm, mock_executable, monkeypatch):
+    engine = ProbeEngine(
+        executable=mock_executable,
+        documentation="Test",
+        llm_client=mock_llm,
+        max_iterations=0,
+        min_samples=12,
+    )
+
+    async def fake_execute(tc, tags):
+        from core.data_models import TestResult
+
+        if tc.args == ["--help"]:
+            return TestResult(stderr="Usage:\n  tool --json --no-sort\n")
+        return TestResult(stdout="ok\n")
+
+    monkeypatch.setattr(engine, "_execute_test", fake_execute)
+
+    corpus = await engine.probe()
+
+    assert len(corpus) >= 12
+    assert any("supplemental" in sample.tags for sample in corpus)
+
+
 def test_probe_engine_parses_embedded_test_case_json(mock_llm, mock_executable):
     engine = ProbeEngine(
         executable=mock_executable,
