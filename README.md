@@ -89,6 +89,35 @@ task_cleanroom image -> probe reference -> synthesize spec -> design architectur
 The official score is a single-instance non-zero baseline, not a solved task:
 `fully_resolved=False`, `almost_resolved=False`.
 
+## Benchmark Interpretation
+
+ProgramBench-style cleanroom reconstruction is intentionally much harder than a
+normal code-generation benchmark. The agent must rebuild an executable program
+from bundled documentation and black-box behavior only, without source lookup,
+decompilation, binary wrapping, hidden-test failure details, or official
+feedback in the repair loop. Under that constraint, many direct large-model
+attempts are expected to score near zero because they must infer CLI semantics,
+I/O behavior, edge cases, formatting, state, and file-system effects without
+seeing the implementation.
+
+ReBuilder should therefore be judged as an agent architecture experiment, not
+as a solved-program generator. The current official baselines show that the
+architecture can consistently produce non-zero cleanroom results across
+multiple task families, with strong individual signals such as `cmatrix` score
+`82`, `nnn` score `79`, `csview` score `57`, and several additional non-zoxide
+baselines in the `26`-`41` range. This is meaningful progress beyond a naive
+single-shot prompt, but it is not yet a general solution.
+
+Current system assessment: ReBuilder is an approximately `8/10` research
+prototype. Its strengths are compliance-aware cleanroom boundaries,
+behavior-coverage-driven probing, internal holdout gating, non-regressive repair
+selection, aggregate-only official evaluation, task-domain profiling, and
+execution-safety guardrails. Its main weaknesses are the remaining
+local-vs-official gap, shallow domain-specific implementation strategies for
+HTML/JSON/network-style tools, occasional repair prompt parse failures, and the
+need for stronger reusable strategy packs before broad ProgramBench
+generalization can be claimed.
+
 ## Cleanroom Boundary
 
 ReBuilder treats ProgramBench compliance as a top-level constraint.
