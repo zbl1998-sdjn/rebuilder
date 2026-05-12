@@ -65,6 +65,10 @@ Verified locally on Windows with Docker Desktop:
   `tomnomnom__gron.88a6234` ProgramBench info score `26` (`117/457` counted
   tests; raw eval `117/457`) after stdin execution fixes and repair-next
   continuation. Local holdout was `11/11`, while exploration stayed `42/51`.
+- Ninth non-zoxide official generalization baseline:
+  `clog-tool__clog-cli.7066cba` ProgramBench info score `41` (`236/575`
+  counted tests; raw eval `370/778`) after task-profile probing and min-50
+  holdout gate. Local holdout was `11/12`.
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
@@ -581,6 +585,8 @@ Completed:
 - Official htmlq aggregate baseline: `118/1455` counted tests,
   ProgramBench info score `8`; retained as an aggregate-only local-vs-official
   gap datapoint
+- Official clog-cli aggregate baseline: `236/575` counted tests,
+  ProgramBench info score `41` from a task-profile min-50 closed-loop candidate
 - Official eval summaries can now print both raw and counted metrics when
   `--instance-id` is supplied, reducing scoring-scope mixups
 - Candidate ranking script scans completed `runs/**/result.json` files and
