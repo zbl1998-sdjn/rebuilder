@@ -132,3 +132,31 @@ def test_failure_clusterer_still_targets_multiple_when_it_dominates():
 
     assert cluster is not None
     assert cluster.kind == FailureKind.MULTIPLE
+
+
+def test_failure_clusterer_can_exclude_regressed_target():
+    clusterer = FailureClusterer()
+    stderr_report = report(
+        test_case=TestCase(name="stderr"),
+        stdout_match=True,
+        stderr_match=False,
+        exit_code_match=True,
+        file_outputs_match=True,
+    )
+    stdout_report = report(
+        test_case=TestCase(name="stdout"),
+        stdout_match=False,
+        stderr_match=True,
+        exit_code_match=True,
+        file_outputs_match=True,
+    )
+    first = clusterer.repair_target([stderr_report, stdout_report])
+
+    assert first is not None
+    second = clusterer.repair_target(
+        [stderr_report, stdout_report],
+        excluded_keys={clusterer.target_key(first)},
+    )
+
+    assert second is not None
+    assert second.kind != first.kind

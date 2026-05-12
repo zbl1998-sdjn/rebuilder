@@ -207,6 +207,8 @@ class MetaController:
             accepted_codebase = self.codebase.model_copy(deep=True)
             accepted_reports: List[DiffReport] = []
             accepted_rate = -1.0
+            rejected_repair_targets = set()
+            last_repair_target_key = None
             repair_iterations_used = 0
             validation_passes = self.max_repair_iterations + 1
             
@@ -226,16 +228,21 @@ class MetaController:
                         "Repair rejected: behavioral equivalence decreased "
                         f"from {accepted_rate:.1%} to {resolved_rate:.1%}"
                     )
+                    if last_repair_target_key is not None:
+                        rejected_repair_targets.add(last_repair_target_key)
+                    last_repair_target_key = None
                     self._restore_codebase_files(accepted_codebase, self.codebase)
                     self.codebase = accepted_codebase.model_copy(deep=True)
                     self.codebase.executable_path = self._resolve_executable(self.codebase)
                     best_reports = accepted_reports
+                    reports = accepted_reports
                     resolved_rate = accepted_rate
-                    break
-
-                accepted_codebase = self.codebase.model_copy(deep=True)
-                accepted_reports = reports
-                accepted_rate = resolved_rate
+                else:
+                    rejected_repair_targets.clear()
+                    last_repair_target_key = None
+                    accepted_codebase = self.codebase.model_copy(deep=True)
+                    accepted_reports = reports
+                    accepted_rate = resolved_rate
                 
                 if resolved_rate >= 0.99:
                     self.log("Behavioral equivalence achieved!")
@@ -244,9 +251,11 @@ class MetaController:
                 if repair_iterations_used >= self.max_repair_iterations:
                     break
                 
-                cluster = FailureClusterer().repair_target(reports)
+                clusterer = FailureClusterer()
+                cluster = clusterer.repair_target(reports, excluded_keys=rejected_repair_targets)
                 if cluster is None:
                     break
+                last_repair_target_key = clusterer.target_key(cluster)
                 
                 repair = RepairLoop(self.llm)
                 self.log(

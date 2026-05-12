@@ -15,7 +15,7 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `217 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- Full unit test suite: `219 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
 - GLM-5.1 coding-plan endpoint smoke tested
 - Official ProgramBench cleanroom zoxide sample runs end-to-end
 - Frozen zoxide local smoke baseline: `16.7%` local differential equivalence

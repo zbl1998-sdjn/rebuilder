@@ -839,6 +839,161 @@ async def test_meta_controller_rejects_regressive_repair(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_meta_controller_tries_next_cluster_after_regressive_repair(monkeypatch, tmp_path):
+    import core.meta_controller as meta_module
+
+    samples = [
+        BehaviorSample(test_case=TestCase(name="pass"), observed_result=TestResult(stdout="ok", exit_code=0)),
+        BehaviorSample(test_case=TestCase(name="stdout_fail"), observed_result=TestResult(stdout="expected", exit_code=0)),
+        BehaviorSample(test_case=TestCase(name="stderr_fail"), observed_result=TestResult(stderr="expected", exit_code=0)),
+    ]
+
+    initial_reports = [
+        DiffReport(
+            test_case=samples[0].test_case,
+            original_result=samples[0].observed_result,
+            replacement_result=samples[0].observed_result,
+            stdout_match=True,
+            stderr_match=True,
+            exit_code_match=True,
+            file_outputs_match=True,
+        ),
+        DiffReport(
+            test_case=samples[1].test_case,
+            original_result=samples[1].observed_result,
+            replacement_result=TestResult(stdout="wrong", exit_code=0),
+            stdout_match=False,
+            stderr_match=True,
+            exit_code_match=True,
+            file_outputs_match=True,
+        ),
+        DiffReport(
+            test_case=samples[2].test_case,
+            original_result=samples[2].observed_result,
+            replacement_result=TestResult(stderr="wrong", exit_code=0),
+            stdout_match=True,
+            stderr_match=False,
+            exit_code_match=True,
+            file_outputs_match=True,
+        ),
+    ]
+    regressed_reports = [
+        DiffReport(
+            test_case=sample.test_case,
+            original_result=sample.observed_result,
+            replacement_result=TestResult(stdout="worse", stderr="worse", exit_code=1),
+            stdout_match=False,
+            stderr_match=False,
+            exit_code_match=False,
+            file_outputs_match=True,
+        )
+        for sample in samples
+    ]
+    improved_reports = [
+        DiffReport(
+            test_case=sample.test_case,
+            original_result=sample.observed_result,
+            replacement_result=sample.observed_result,
+            stdout_match=True,
+            stderr_match=True,
+            exit_code_match=True,
+            file_outputs_match=True,
+        )
+        for sample in samples
+    ]
+
+    class FakeProbeEngine:
+        cli_surface = None
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def probe(self):
+            return samples
+
+    class FakeSpecSynthesizer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def synthesize(self, *args, **kwargs):
+            return ProgramSpec(summary="spec")
+
+    class FakeArchitectAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def design(self, *args, **kwargs):
+            return ArchitectureBlueprint(language="python", entry_point="main.py")
+
+    class FakeImplementerAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def implement(self, spec, blueprint, output_dir):
+            output_dir.mkdir(parents=True, exist_ok=True)
+            path = output_dir / "main.py"
+            path.write_text("print('initial')\n", encoding="utf-8")
+            return Codebase(
+                root_path=output_dir,
+                language="python",
+                files={"main.py": "print('initial')\n"},
+                executable_path=path,
+            )
+
+    class FakeDifferentialTester:
+        calls = 0
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run_full_suite(self, corpus):
+            FakeDifferentialTester.calls += 1
+            if FakeDifferentialTester.calls == 1:
+                return initial_reports
+            if FakeDifferentialTester.calls == 2:
+                return regressed_reports
+            return improved_reports
+
+    class FakeRepairLoop:
+        seen_kinds = []
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def diagnose_cluster(self, cluster, spec, codebase):
+            FakeRepairLoop.seen_kinds.append(cluster.kind)
+            return RepairStrategy(strategy_type="fix_output_format", description="fix")
+
+        async def apply_repair(self, strategy, codebase, spec):
+            codebase.files["main.py"] = "print('changed')\n"
+            (codebase.root_path / "main.py").write_text("print('changed')\n", encoding="utf-8")
+            return codebase
+
+    monkeypatch.setattr(meta_module, "ProbeEngine", FakeProbeEngine)
+    monkeypatch.setattr(meta_module, "SpecSynthesizer", FakeSpecSynthesizer)
+    monkeypatch.setattr(meta_module, "ArchitectAgent", FakeArchitectAgent)
+    monkeypatch.setattr(meta_module, "ImplementerAgent", FakeImplementerAgent)
+    monkeypatch.setattr(meta_module, "DifferentialTester", FakeDifferentialTester)
+    monkeypatch.setattr(meta_module, "RepairLoop", FakeRepairLoop)
+
+    controller = MetaController(
+        llm_client=MockLLMClient(),
+        output_root=tmp_path,
+        max_repair_iterations=2,
+        internal_holdout_ratio=0.0,
+    )
+
+    result = await controller.run("sample", tmp_path / "reference.py", "docs")
+
+    assert result.resolved_rate == 1.0
+    assert result.iterations_used == 2
+    assert FakeDifferentialTester.calls == 3
+    assert len(FakeRepairLoop.seen_kinds) == 2
+    assert FakeRepairLoop.seen_kinds[0] != FakeRepairLoop.seen_kinds[1]
+    assert any("Repair rejected" in log for log in result.logs)
+
+
+@pytest.mark.asyncio
 async def test_meta_controller_skips_repair_on_llm_transport_failure(monkeypatch, tmp_path):
     import core.meta_controller as meta_module
 

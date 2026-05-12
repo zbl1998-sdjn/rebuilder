@@ -23,6 +23,9 @@ class FailureCluster(BaseModel):
     reports: List[DiffReport] = Field(default_factory=list)
 
 
+ClusterKey = tuple[FailureKind, tuple[str, ...]]
+
+
 class FailureClusterer:
     """Group failures so repair can target related mismatches together."""
 
@@ -59,9 +62,18 @@ class FailureClusterer:
             key=lambda cluster: (-len(cluster.reports), cluster.kind.value),
         )[0]
 
-    def repair_target(self, reports: List[DiffReport]) -> FailureCluster | None:
+    def repair_target(
+        self,
+        reports: List[DiffReport],
+        excluded_keys: set[ClusterKey] | None = None,
+    ) -> FailureCluster | None:
         """Return the most actionable repair target using count and coherence."""
-        clusters = self.cluster(reports)
+        excluded = excluded_keys or set()
+        clusters = [
+            cluster
+            for cluster in self.cluster(reports)
+            if self.target_key(cluster) not in excluded
+        ]
         if not clusters:
             return None
         return sorted(
@@ -72,6 +84,13 @@ class FailureClusterer:
                 cluster.kind.value,
             ),
         )[0]
+
+    def target_key(self, cluster: FailureCluster) -> ClusterKey:
+        """Return a stable key for excluding already-regressed repair targets."""
+        return (
+            cluster.kind,
+            tuple(sorted(report.test_case.name for report in cluster.reports)),
+        )
 
     def _repair_score(self, cluster: FailureCluster) -> float:
         return len(cluster.reports) * self._REPAIR_COHERENCE_WEIGHT[cluster.kind]
