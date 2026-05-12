@@ -1,4 +1,5 @@
 import json
+import os
 
 from scripts.rank_programbench_candidates import collect_candidates, discover_baseline_task_ids, format_rate
 
@@ -63,6 +64,21 @@ def test_collect_candidates_prefers_reliable_run_for_same_task(tmp_path):
 
     assert len(rows) == 1
     assert rows[0].holdout_cases == 12
+
+
+def test_collect_candidates_can_prefer_latest_run_for_same_task(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    older = write_result(runs / "run_old", "task.a", 0.9, 0.95, holdout_cases=12)
+    newer = write_result(runs / "run_new", "task.a", 0.7, 0.6, holdout_cases=12)
+    os.utime(older, (1_700_000_000, 1_700_000_000))
+    os.utime(newer, (1_700_000_100, 1_700_000_100))
+
+    rows = collect_candidates(runs, official, latest_per_task=True)
+
+    assert len(rows) == 1
+    assert rows[0].result_path == newer
+    assert rows[0].holdout_resolved_rate == 0.6
 
 
 def test_collect_candidates_can_filter_official_tasks(tmp_path):

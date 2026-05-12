@@ -54,6 +54,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Only show tasks without an existing official eval artifact",
     )
+    parser.add_argument(
+        "--latest-per-task",
+        action="store_true",
+        help="Rank each task by its newest result.json instead of its best historical score",
+    )
     return parser.parse_args(argv)
 
 
@@ -64,6 +69,7 @@ def collect_candidates(
     baseline_root: Path | str = "baselines/programbench",
     only_unofficial: bool = False,
     min_holdout_cases: int = 10,
+    latest_per_task: bool = False,
 ) -> list[CandidateRow]:
     official_task_ids = discover_official_eval_task_ids(Path(official_eval_root))
     official_task_ids.update(discover_baseline_task_ids(Path(baseline_root)))
@@ -75,7 +81,12 @@ def collect_candidates(
         if only_unofficial and row.has_official_eval:
             continue
         current = best_by_task.get(row.task_id)
-        if current is None or candidate_sort_key(row, min_holdout_cases) > candidate_sort_key(current, min_holdout_cases):
+        if current is None or is_preferred_candidate(
+            row,
+            current,
+            min_holdout_cases=min_holdout_cases,
+            latest_per_task=latest_per_task,
+        ):
             best_by_task[row.task_id] = row
     return sorted(best_by_task.values(), key=lambda row: candidate_sort_key(row, min_holdout_cases), reverse=True)
 
@@ -151,6 +162,18 @@ def candidate_sort_key(row: CandidateRow, min_holdout_cases: int = 10) -> tuple[
     )
 
 
+def is_preferred_candidate(
+    row: CandidateRow,
+    current: CandidateRow,
+    *,
+    min_holdout_cases: int,
+    latest_per_task: bool,
+) -> bool:
+    if latest_per_task:
+        return row.modified_at > current.modified_at
+    return candidate_sort_key(row, min_holdout_cases) > candidate_sort_key(current, min_holdout_cases)
+
+
 def as_float(value: Any) -> float:
     try:
         return float(value or 0.0)
@@ -207,6 +230,7 @@ def main(argv: list[str] | None = None) -> None:
         baseline_root=args.baseline_root,
         only_unofficial=args.only_unofficial,
         min_holdout_cases=args.min_holdout_cases,
+        latest_per_task=args.latest_per_task,
     )
     write_markdown(rows, args.limit)
 

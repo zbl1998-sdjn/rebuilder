@@ -15,7 +15,7 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `213 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- Full unit test suite: `217 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
 - GLM-5.1 coding-plan endpoint smoke tested
 - Official ProgramBench cleanroom zoxide sample runs end-to-end
 - Frozen zoxide local smoke baseline: `16.7%` local differential equivalence
@@ -49,10 +49,14 @@ Verified locally on Windows with Docker Desktop:
 - Fifth non-zoxide official generalization baseline:
   `wfxr__csview.8ac4de0` ProgramBench info score `57` (`190/335` counted
   tests; raw eval `200/348`) from a holdout-gated min-50 closed-loop candidate.
+  After fixing stdin forwarding in local differential execution, the refreshed
+  local holdout is `8/12`, so the submitted aggregate is retained but the old
+  `11/12` local gate is treated as stale.
 - Sixth non-zoxide official generalization baseline:
   `mgdm__htmlq.6e31bc8` ProgramBench info score `8` (`118/1455` counted
   tests; raw eval `720/2058`) from a holdout-gated min-50 closed-loop candidate.
-  Local holdout was `10/11`, so this is another local-vs-official gap datapoint.
+  After the stdin fix, refreshed local holdout is `7/11`, so this is retained as
+  a stale-gate local-vs-official gap datapoint.
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
