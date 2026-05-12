@@ -46,8 +46,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--probe-iterations",
         type=int,
-        default=60,
-        help="ReBuilder probe planning iterations; default supports the holdout case gate",
+        default=10,
+        help="ReBuilder LLM probe planning iterations; deterministic supplemental probes fill --min-probe-samples",
     )
     parser.add_argument(
         "--min-probe-samples",

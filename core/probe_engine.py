@@ -78,6 +78,8 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         
         # Phase 2: Generate and run behavioral tests via LLM-guided fuzzing
         for iteration in range(self.max_iterations):
+            if self.min_samples and len(self.corpus) >= self.min_samples:
+                break
             test_cases = await self._generate_test_cases(iteration)
             if not test_cases:
                 break
