@@ -111,8 +111,8 @@ def _contract_priority(contract: BehaviorContract) -> tuple[int, int]:
 
 
 def _contract_payload(contract: BehaviorContract) -> dict:
-    stdout_limit = 8000 if _is_shell_init_contract(contract) else 1200
-    stderr_limit = 8000 if _is_shell_init_contract(contract) else 1200
+    stdout_limit = 8000 if _needs_full_contract_stream(contract) else 1200
+    stderr_limit = 8000 if _needs_full_contract_stream(contract) else 1200
     return {
         "test_name": contract.test_name,
         "args": contract.args,
@@ -135,6 +135,15 @@ def _is_shell_init_contract(contract: BehaviorContract) -> bool:
         or contract.test_name.lower().startswith("shell_init_")
         or contract.args[:1] == ["init"]
     )
+
+
+def _is_help_contract(contract: BehaviorContract) -> bool:
+    args = set(contract.args)
+    return contract.test_name.lower() in {"help_long", "help_short"} or "--help" in args or "-h" in args
+
+
+def _needs_full_contract_stream(contract: BehaviorContract) -> bool:
+    return _is_shell_init_contract(contract) or _is_help_contract(contract)
 
 
 def _is_file_io_contract(contract: BehaviorContract) -> bool:

@@ -815,6 +815,20 @@ def test_behavior_contract_prompt_prioritizes_shell_init_full_output():
     assert "case_19" not in prompt
 
 
+def test_behavior_contract_prompt_keeps_help_contract_tail():
+    stderr = "Usage:\n" + ("x" * 3000) + "\nExit Codes:\n  0 OK\n# help-tail\n"
+    spec = ProgramSpec(
+        summary="tool",
+        behavior_contracts=[
+            BehaviorContract(test_name="help_long", args=["--help"], stderr=stderr),
+        ],
+    )
+
+    prompt = behavior_contract_prompt(spec)
+
+    assert "# help-tail\\n" in prompt
+
+
 def test_behavior_contract_prompt_includes_output_file_previews():
     spec = ProgramSpec(
         summary="tool",

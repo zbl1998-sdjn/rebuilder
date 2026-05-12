@@ -23,9 +23,14 @@ from llm_clients.options import configured_max_tokens
 
 class RepairLoop:
     """Diagnose differential test failures and produce repair strategies."""
-    
+
     SYSTEM_PROMPT = """You are a debugging expert analyzing behavioral differences between an original program and its replacement.
 Given a failure report, diagnose the root cause and propose a precise repair strategy.
+
+Preserve exact output channels. If the original prints help, usage, or errors to stderr, the replacement must not move
+that text to stdout. For help/version/usage contracts, compare the full observed text, including examples, blank lines,
+trailing newlines, option spelling, aliases, and stdout-vs-stderr placement. Avoid library default help output when the
+observed format is custom.
 
 Output a JSON object:
 - "strategy_type": One of ["fix_exit_code", "fix_output_format", "fix_file_handling", "fix_algorithm", "add_edge_case", "refactor"]
@@ -117,12 +122,14 @@ Be specific and actionable."""
         return self._parse_strategy(resp.content)
 
     def _diff_summary(self, diff: DiffReport) -> dict:
+        stdout_limit = self._stream_preview_limit(diff, "stdout")
+        stderr_limit = self._stream_preview_limit(diff, "stderr")
         return {
             "test_case": test_case_json_payload(diff.test_case),
-            "original_stdout": diff.original_result.stdout[:500],
-            "replacement_stdout": diff.replacement_result.stdout[:500],
-            "original_stderr": diff.original_result.stderr[:300],
-            "replacement_stderr": diff.replacement_result.stderr[:300],
+            "original_stdout": diff.original_result.stdout[:stdout_limit],
+            "replacement_stdout": diff.replacement_result.stdout[:stdout_limit],
+            "original_stderr": diff.original_result.stderr[:stderr_limit],
+            "replacement_stderr": diff.replacement_result.stderr[:stderr_limit],
             "original_exit": diff.original_result.exit_code,
             "replacement_exit": diff.replacement_result.exit_code,
             "stdout_match": diff.stdout_match,
@@ -130,6 +137,14 @@ Be specific and actionable."""
             "exit_code_match": diff.exit_code_match,
             "file_outputs_match": diff.file_outputs_match,
         }
+
+    def _stream_preview_limit(self, diff: DiffReport, stream: str) -> int:
+        args = set(diff.test_case.args)
+        name = diff.test_case.name.lower()
+        is_help_like = name in {"help_long", "help_short"} or "--help" in args or "-h" in args
+        if is_help_like:
+            return 4000
+        return 500 if stream == "stdout" else 300
     
     def _parse_strategy(self, text: str) -> RepairStrategy:
         import re
@@ -174,6 +189,8 @@ Be specific and actionable."""
         messages = [
             self.llm.system_prompt(
                 "You are editing source code to fix a behavioral mismatch. "
+                "Preserve exact stdout/stderr channels and exact help/usage/version text from behavior contracts. "
+                "Do not rely on argparse or other library-generated help when observed output uses custom formatting. "
                 "Output the complete corrected files in the same format: --- FILE: path --- content --- END FILE ---"
             ),
             self.llm.user_prompt(

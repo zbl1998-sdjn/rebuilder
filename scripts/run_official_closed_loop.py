@@ -45,6 +45,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--config", default="config/settings.yaml", help="ReBuilder config path")
     parser.add_argument("--max-repairs", type=int, default=3, help="ReBuilder repair iterations")
     parser.add_argument(
+        "--near-miss-holdout-rate",
+        type=float,
+        default=0.75,
+        help="Holdout rate that triggers one deeper local repair retry before giving up",
+    )
+    parser.add_argument(
+        "--near-miss-max-repairs",
+        type=int,
+        default=5,
+        help="Repair iterations for the near-miss retry; ignored unless higher than --max-repairs",
+    )
+    parser.add_argument(
         "--replacement-executor",
         choices=["local", "wsl"],
         default="wsl",
@@ -57,6 +69,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Static output asset mode",
     )
     parser.add_argument("--min-holdout-rate", type=float, default=0.8, help="Minimum holdout rate before official eval")
+    parser.add_argument(
+        "--min-holdout-cases",
+        type=int,
+        default=10,
+        help="Minimum internal holdout cases before official eval",
+    )
     parser.add_argument("--pull", action="store_true", help="Pull missing task_cleanroom image during preparation")
     parser.add_argument(
         "--official-eval-root",
@@ -119,7 +137,13 @@ def build_prepare_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
-def build_rebuilder_command(args: argparse.Namespace, paths: ClosedLoopPaths, cleanroom_image: str) -> list[str]:
+def build_rebuilder_command(
+    args: argparse.Namespace,
+    paths: ClosedLoopPaths,
+    cleanroom_image: str,
+    max_repairs: int | None = None,
+) -> list[str]:
+    repair_iterations = args.max_repairs if max_repairs is None else max_repairs
     command = [
         sys.executable,
         "main.py",
@@ -130,7 +154,7 @@ def build_rebuilder_command(args: argparse.Namespace, paths: ClosedLoopPaths, cl
         "--output",
         str(paths.output_root),
         "--max-repairs",
-        str(args.max_repairs),
+        str(repair_iterations),
         "--reference-docker-image",
         cleanroom_image,
         "--replacement-executor",
@@ -154,6 +178,8 @@ def build_package_command(args: argparse.Namespace, paths: ClosedLoopPaths) -> l
         str(paths.submission_root),
         "--min-holdout-rate",
         str(args.min_holdout_rate),
+        "--min-holdout-cases",
+        str(args.min_holdout_cases),
     ]
 
 
@@ -190,6 +216,18 @@ def holdout_rate(payload: dict) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def holdout_cases(payload: dict) -> int:
+    return int(payload.get("holdout_cases") or 0)
+
+
+def should_retry_near_miss(args: argparse.Namespace, rate: float | None) -> bool:
+    if rate is None:
+        return False
+    if rate < args.near_miss_holdout_rate or rate >= args.min_holdout_rate:
+        return False
+    return args.near_miss_max_repairs > args.max_repairs
 
 
 def run_command(command: list[str]) -> None:
@@ -244,6 +282,19 @@ def main(argv: list[str] | None = None) -> None:
 
     result_payload = load_result(paths.result)
     rate = holdout_rate(result_payload)
+    if should_retry_near_miss(args, rate):
+        print(
+            f"holdout={rate:.4f} is a near miss; retrying local repair with "
+            f"--max-repairs={args.near_miss_max_repairs}",
+            flush=True,
+        )
+        run_command(build_rebuilder_command(args, paths, sample.cleanroom_image, args.near_miss_max_repairs))
+        result_payload = load_result(paths.result)
+        rate = holdout_rate(result_payload)
+    cases = holdout_cases(result_payload)
+    if cases < args.min_holdout_cases:
+        print(f"holdout_cases={cases} below min={args.min_holdout_cases}; skipping official eval")
+        raise SystemExit(3)
     if rate is None or rate < args.min_holdout_rate:
         print(f"holdout={rate if rate is not None else 'missing'} below min={args.min_holdout_rate}; skipping official eval")
         raise SystemExit(3)

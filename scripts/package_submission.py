@@ -30,6 +30,12 @@ def parse_args() -> argparse.Namespace:
         help="Minimum aggregate internal holdout resolved rate required for packaging",
     )
     parser.add_argument(
+        "--min-holdout-cases",
+        type=int,
+        default=1,
+        help="Minimum number of aggregate internal holdout cases required for packaging",
+    )
+    parser.add_argument(
         "--allow-unverified",
         action="store_true",
         help="Bypass the internal holdout gate for local debugging; do not use for official eval",
@@ -41,7 +47,7 @@ def main() -> None:
     args = parse_args()
     if not args.allow_unverified:
         try:
-            SubmissionHoldoutGate(min_rate=args.min_holdout_rate).verify(args.result)
+            SubmissionHoldoutGate(min_rate=args.min_holdout_rate, min_cases=args.min_holdout_cases).verify(args.result)
         except HoldoutGateError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             sys.exit(2)

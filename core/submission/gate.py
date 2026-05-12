@@ -17,13 +17,15 @@ class HoldoutGateSummary:
     holdout_cases: int
     holdout_resolved_rate: float
     min_rate: float
+    min_cases: int
 
 
 class SubmissionHoldoutGate:
     """Require an aggregate internal holdout result before packaging."""
 
-    def __init__(self, min_rate: float = 0.8):
+    def __init__(self, min_rate: float = 0.8, min_cases: int = 1):
         self.min_rate = max(0.0, min(float(min_rate), 1.0))
+        self.min_cases = max(1, int(min_cases))
 
     def verify(self, result_path: Path | str) -> HoldoutGateSummary:
         path = Path(result_path)
@@ -33,6 +35,11 @@ class SubmissionHoldoutGate:
         if holdout_cases <= 0 or raw_rate is None:
             raise HoldoutGateError(
                 "Internal aggregate holdout is required before packaging."
+            )
+        if holdout_cases < self.min_cases:
+            raise HoldoutGateError(
+                f"Internal aggregate holdout has {holdout_cases} cases, "
+                f"below required {self.min_cases}."
             )
 
         holdout_resolved_rate = float(raw_rate)
@@ -46,4 +53,5 @@ class SubmissionHoldoutGate:
             holdout_cases=holdout_cases,
             holdout_resolved_rate=holdout_resolved_rate,
             min_rate=self.min_rate,
+            min_cases=self.min_cases,
         )

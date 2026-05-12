@@ -27,6 +27,7 @@ def test_submission_holdout_gate_accepts_aggregate_holdout_result(tmp_path):
 
     assert summary.holdout_cases == 2
     assert summary.holdout_resolved_rate == 0.9
+    assert summary.min_cases == 1
 
 
 def test_submission_holdout_gate_rejects_missing_holdout(tmp_path):
@@ -45,6 +46,13 @@ def test_submission_holdout_gate_rejects_below_threshold(tmp_path):
 
     with pytest.raises(HoldoutGateError, match="below"):
         SubmissionHoldoutGate(min_rate=0.8).verify(result_path)
+
+
+def test_submission_holdout_gate_rejects_too_few_holdout_cases(tmp_path):
+    result_path = write_result(tmp_path / "result.json", holdout_cases=2, holdout_resolved_rate=1.0)
+
+    with pytest.raises(HoldoutGateError, match="below required 3"):
+        SubmissionHoldoutGate(min_rate=0.8, min_cases=3).verify(result_path)
 
 
 def test_package_submission_script_requires_passing_holdout_gate(tmp_path):
@@ -74,4 +82,37 @@ def test_package_submission_script_requires_passing_holdout_gate(tmp_path):
 
     assert result.returncode != 0
     assert "holdout" in result.stderr.lower()
+    assert not (tmp_path / "out" / "sample" / "submission.tar.gz").exists()
+
+
+def test_package_submission_script_requires_min_holdout_cases(tmp_path):
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    (generated / "main.py").write_text("print('ok')\n", encoding="utf-8")
+    result_path = write_result(tmp_path / "result.json", holdout_cases=2, holdout_resolved_rate=1.0)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/package_submission.py",
+            "sample",
+            "--generated",
+            str(generated),
+            "--output",
+            str(tmp_path / "out"),
+            "--result",
+            str(result_path),
+            "--min-holdout-rate",
+            "0.8",
+            "--min-holdout-cases",
+            "3",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "holdout" in result.stderr.lower()
+    assert "below required 3" in result.stderr
     assert not (tmp_path / "out" / "sample" / "submission.tar.gz").exists()

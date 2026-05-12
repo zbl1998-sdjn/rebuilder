@@ -84,6 +84,20 @@ def diff(name: str) -> DiffReport:
     )
 
 
+def long_help_diff() -> DiffReport:
+    expected = "Usage:\n" + ("x" * 900) + "\nfinal expected example\n"
+    actual = "Usage:\n" + ("x" * 900) + "\nwrong example\n"
+    return DiffReport(
+        test_case=TestCase(name="help_long", args=["--help"]),
+        original_result=TestResult(stdout="", stderr=expected, exit_code=0),
+        replacement_result=TestResult(stdout=actual, stderr="", exit_code=0),
+        stdout_match=False,
+        stderr_match=False,
+        exit_code_match=True,
+        file_outputs_match=True,
+    )
+
+
 def file_input_diff(name: str) -> DiffReport:
     return DiffReport(
         test_case=TestCase(
@@ -152,6 +166,25 @@ async def test_diagnose_cluster_summarizes_related_failures(tmp_path):
     assert '"count": 2' in prompt
     assert "help" in prompt
     assert "version" in prompt
+
+
+@pytest.mark.asyncio
+async def test_diagnose_cluster_keeps_help_tail_and_channel_guidance(tmp_path):
+    llm = CaptureLLM()
+    cluster = FailureCluster(kind=FailureKind.MULTIPLE, reports=[long_help_diff()])
+
+    await RepairLoop(llm).diagnose_cluster(
+        cluster,
+        ProgramSpec(summary="cli tool"),
+        Codebase(root_path=tmp_path, language="python", files={"main.py": "print('x')"}),
+    )
+
+    system_prompt = llm.messages[0].content
+    prompt = llm.messages[-1].content
+    assert "Preserve exact output channels" in system_prompt
+    assert "final expected example" in prompt
+    assert '"original_stderr"' in prompt
+    assert '"replacement_stdout"' in prompt
 
 
 @pytest.mark.asyncio

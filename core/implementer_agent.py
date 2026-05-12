@@ -42,6 +42,8 @@ Rules:
 4. Handle all CLI arguments as described in the spec.
 5. Use standard libraries where possible; minimize external dependencies.
 6. If the original appears to use a specific algorithm (e.g., specific sort), implement it correctly.
+7. Preserve stdout vs stderr exactly. Do not use default argparse help/version/error output when observed behavior uses
+   custom formatting, custom option ordering, or prints help/usage to stderr.
 
 Output only source artifacts, with no prose. Preferred output format:
 For each file, output:
@@ -62,6 +64,8 @@ The output must include exactly the entrypoint file requested by the architectur
 It must be runnable immediately, include a main() function and __main__ guard, parse CLI args,
 and cover the observed help/version/no-args/error surface as best as possible.
 Use only Python standard library imports. Do not import local generated modules in this stage.
+Preserve stdout vs stderr exactly. Prefer hand-written help/version/usage text over argparse defaults when exact
+behavior contracts show custom formatting or stderr output.
 
 Return only source artifacts or a JSON file manifest. Do not include prose."""
 
