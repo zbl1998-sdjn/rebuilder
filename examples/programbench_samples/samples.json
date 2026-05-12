@@ -1,0 +1,57 @@
+[
+  {
+    "instance_id": "ajeetdsouza__zoxide.67ca1bc",
+    "docker_repository": "ajeetdsouza_1776_zoxide.67ca1bc",
+    "source_project": "ajeetdsouza/zoxide",
+    "cleanroom_image": "programbench/ajeetdsouza_1776_zoxide.67ca1bc:task_cleanroom",
+    "task_image": "programbench/ajeetdsouza_1776_zoxide.67ca1bc:task",
+    "description": "ProgramBench task: ajeetdsouza/zoxide (MIT) - behavioral test environment",
+    "pull_count": 222,
+    "storage_size": 707229054,
+    "last_updated": "2026-05-03T23:30:37.912486Z"
+  },
+  {
+    "instance_id": "agourlay__zip-password-finder.704700d",
+    "docker_repository": "agourlay_1776_zip-password-finder.704700d",
+    "source_project": "agourlay/zip-password-finder",
+    "cleanroom_image": "programbench/agourlay_1776_zip-password-finder.704700d:task_cleanroom",
+    "task_image": "programbench/agourlay_1776_zip-password-finder.704700d:task",
+    "description": "ProgramBench task: agourlay/zip-password-finder (Apache-2.0) - behavioral test environment",
+    "pull_count": 195,
+    "storage_size": 888244487,
+    "last_updated": "2026-05-03T23:30:38.022062Z"
+  },
+  {
+    "instance_id": "alecthomas__chroma.8d04def",
+    "docker_repository": "alecthomas_1776_chroma.8d04def",
+    "source_project": "alecthomas/chroma",
+    "cleanroom_image": "programbench/alecthomas_1776_chroma.8d04def:task_cleanroom",
+    "task_image": "programbench/alecthomas_1776_chroma.8d04def:task",
+    "description": "ProgramBench task: alecthomas/chroma (MIT) - behavioral test environment",
+    "pull_count": 178,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:37.90784Z"
+  },
+  {
+    "instance_id": "abishekvashok__cmatrix.5c082c6",
+    "docker_repository": "abishekvashok_1776_cmatrix.5c082c6",
+    "source_project": "abishekvashok/cmatrix",
+    "cleanroom_image": "programbench/abishekvashok_1776_cmatrix.5c082c6:task_cleanroom",
+    "task_image": "programbench/abishekvashok_1776_cmatrix.5c082c6:task",
+    "description": "ProgramBench task: abishekvashok/cmatrix (GPL-3.0) - behavioral test environment",
+    "pull_count": 488,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:38.016971Z"
+  },
+  {
+    "instance_id": "alexpovel__srgn.89f943b",
+    "docker_repository": "alexpovel_1776_srgn.89f943b",
+    "source_project": "alexpovel/srgn",
+    "cleanroom_image": "programbench/alexpovel_1776_srgn.89f943b:task_cleanroom",
+    "task_image": "programbench/alexpovel_1776_srgn.89f943b:task",
+    "description": "ProgramBench task: alexpovel/srgn (MIT) - behavioral test environment",
+    "pull_count": 158,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:38.180252Z"
+  }
+]

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-12T03:32:41.072717+00:00",
+  "instance_id": "abishekvashok__cmatrix.5c082c6",
+  "model": "glm-5.1",
+  "config_path": "config\\settings.yaml",
+  "notes": "Improved official cmatrix aggregate baseline from manual hotfix retry: 415/508 counted tests, score 82; raw eval 674/769; aggregate-only.",
+  "local": {
+    "status": "failed",
+    "resolved_rate": 0.945054945054945,
+    "holdout_resolved_rate": 0.9318181818181818,
+    "probes_conducted": 221,
+    "iterations_used": 2
+  },
+  "official": {
+    "passed_tests": 415,
+    "total_tests": 508,
+    "pass_rate": 0.8169291338582677,
+    "score": 82,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 0
+  },
+  "submission": {
+    "path": "runs\\programbench_official_eval\\submission_hotfix_retry\\abishekvashok__cmatrix.5c082c6\\submission.tar.gz",
+    "sha256": "652f662cfdab089c4c2a144367105693f08e5149722479fb5851392942dcd82f"
+  }
+}

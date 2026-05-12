@@ -1,0 +1,10 @@
+.env
+.claude/
+.venv/
+.venv-programbench/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+output/
+runs/
+submissions/

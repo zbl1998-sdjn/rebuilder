@@ -1,0 +1,90 @@
+[
+  {
+    "instance_id": "ajeetdsouza__zoxide.67ca1bc",
+    "docker_repository": "ajeetdsouza_1776_zoxide.67ca1bc",
+    "source_project": "ajeetdsouza/zoxide",
+    "cleanroom_image": "programbench/ajeetdsouza_1776_zoxide.67ca1bc:task_cleanroom",
+    "task_image": "programbench/ajeetdsouza_1776_zoxide.67ca1bc:task",
+    "description": "ProgramBench task: ajeetdsouza/zoxide (MIT) - behavioral test environment",
+    "pull_count": 257,
+    "storage_size": 707229054,
+    "last_updated": "2026-05-03T23:30:37.912486Z"
+  },
+  {
+    "instance_id": "agourlay__zip-password-finder.704700d",
+    "docker_repository": "agourlay_1776_zip-password-finder.704700d",
+    "source_project": "agourlay/zip-password-finder",
+    "cleanroom_image": "programbench/agourlay_1776_zip-password-finder.704700d:task_cleanroom",
+    "task_image": "programbench/agourlay_1776_zip-password-finder.704700d:task",
+    "description": "ProgramBench task: agourlay/zip-password-finder (Apache-2.0) - behavioral test environment",
+    "pull_count": 235,
+    "storage_size": 888244487,
+    "last_updated": "2026-05-03T23:30:38.022062Z"
+  },
+  {
+    "instance_id": "alecthomas__chroma.8d04def",
+    "docker_repository": "alecthomas_1776_chroma.8d04def",
+    "source_project": "alecthomas/chroma",
+    "cleanroom_image": "programbench/alecthomas_1776_chroma.8d04def:task_cleanroom",
+    "task_image": "programbench/alecthomas_1776_chroma.8d04def:task",
+    "description": "ProgramBench task: alecthomas/chroma (MIT) - behavioral test environment",
+    "pull_count": 207,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:37.90784Z"
+  },
+  {
+    "instance_id": "abishekvashok__cmatrix.5c082c6",
+    "docker_repository": "abishekvashok_1776_cmatrix.5c082c6",
+    "source_project": "abishekvashok/cmatrix",
+    "cleanroom_image": "programbench/abishekvashok_1776_cmatrix.5c082c6:task_cleanroom",
+    "task_image": "programbench/abishekvashok_1776_cmatrix.5c082c6:task",
+    "description": "ProgramBench task: abishekvashok/cmatrix (GPL-3.0) - behavioral test environment",
+    "pull_count": 530,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:38.016971Z"
+  },
+  {
+    "instance_id": "alexpovel__srgn.89f943b",
+    "docker_repository": "alexpovel_1776_srgn.89f943b",
+    "source_project": "alexpovel/srgn",
+    "cleanroom_image": "programbench/alexpovel_1776_srgn.89f943b:task_cleanroom",
+    "task_image": "programbench/alexpovel_1776_srgn.89f943b:task",
+    "description": "ProgramBench task: alexpovel/srgn (MIT) - behavioral test environment",
+    "pull_count": 188,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:38.180252Z"
+  },
+  {
+    "instance_id": "anordal__shellharden.6a6ffd4",
+    "docker_repository": "anordal_1776_shellharden.6a6ffd4",
+    "source_project": "anordal/shellharden",
+    "cleanroom_image": "programbench/anordal_1776_shellharden.6a6ffd4:task_cleanroom",
+    "task_image": "programbench/anordal_1776_shellharden.6a6ffd4:task",
+    "description": "ProgramBench task: anordal/shellharden (MPL-2.0) - behavioral test environment",
+    "pull_count": 209,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:41.687132Z"
+  },
+  {
+    "instance_id": "antonmedv__walk.bf802ef",
+    "docker_repository": "antonmedv_1776_walk.bf802ef",
+    "source_project": "antonmedv/walk",
+    "cleanroom_image": "programbench/antonmedv_1776_walk.bf802ef:task_cleanroom",
+    "task_image": "programbench/antonmedv_1776_walk.bf802ef:task",
+    "description": "ProgramBench task: antonmedv/walk (MIT) - behavioral test environment",
+    "pull_count": 203,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:45.813507Z"
+  },
+  {
+    "instance_id": "ammarabouzor__tui-journal.2b4540d",
+    "docker_repository": "ammarabouzor_1776_tui-journal.2b4540d",
+    "source_project": "AmmarAbouZor/tui-journal",
+    "cleanroom_image": "programbench/ammarabouzor_1776_tui-journal.2b4540d:task_cleanroom",
+    "task_image": "programbench/ammarabouzor_1776_tui-journal.2b4540d:task",
+    "description": "ProgramBench task: AmmarAbouZor/tui-journal (MIT) - behavioral test environment",
+    "pull_count": 176,
+    "storage_size": 1052543514,
+    "last_updated": "2026-05-03T23:30:51.932569Z"
+  }
+]

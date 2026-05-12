@@ -1,0 +1,50 @@
+# Low-cost GLM smoke test configuration.
+
+llm:
+  provider: "glm"
+  glm:
+    api_key: "${GLM_API_KEY}"
+    base_url: "https://api.z.ai/api/coding/paas/v4"
+    model: "glm-5.1"
+    temperature: 0.2
+    max_tokens: 8192
+    timeout: 300
+    max_retries: 5
+    retry_delay: 2
+    thinking:
+      type: "disabled"
+  kimi:
+    api_key: "${KIMI_API_KEY}"
+    base_url: "https://api.moonshot.cn/v1"
+    model: "kimi-k2-6"
+    temperature: 0.3
+    max_tokens: 8192
+    timeout: 120
+
+probe:
+  max_probe_iterations: 1
+  timeout_per_run: 5
+  edge_case_strategies:
+    - "empty_input"
+
+architect:
+  preferred_languages:
+    - "python"
+  complexity_threshold: 3
+  max_modules: 3
+
+differential:
+  max_test_cases: 20
+  equivalence_threshold: 0.95
+  strict_exit_code: true
+  compare_stderr: true
+  compare_file_outputs: true
+
+implementation:
+  static_output_assets: true
+
+controller:
+  max_repair_iterations: 1
+  min_probe_coverage: 0.0
+  internal_holdout_ratio: 0.25
+  holdout_seed: "rebuilder"

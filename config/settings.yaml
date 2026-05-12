@@ -1,0 +1,68 @@
+# ReBuilder Framework Configuration
+
+# LLM Provider Settings
+llm:
+  # Choose provider: "glm" or "kimi"
+  provider: "glm"
+  
+  # GLM-5.1 (Zhipu AI) Settings
+  glm:
+    api_key: "${GLM_API_KEY}"
+    base_url: "https://api.z.ai/api/coding/paas/v4"
+    model: "glm-5.1"
+    temperature: 0.3
+    max_tokens: 8192
+    timeout: 300
+    max_retries: 5
+    retry_delay: 2
+    thinking:
+      type: "disabled"
+  
+  # Kimi K2.6 (Moonshot) Settings
+  kimi:
+    api_key: "${KIMI_API_KEY}"
+    base_url: "https://api.moonshot.cn/v1"
+    model: "kimi-k2-6"
+    temperature: 0.3
+    max_tokens: 8192
+    timeout: 120
+
+# Probe Engine Settings
+probe:
+  max_probe_iterations: 50
+  max_input_size_bytes: 1048576  # 1MB
+  timeout_per_run: 10  # seconds
+  edge_case_strategies:
+    - "empty_input"
+    - "max_length"
+    - "special_characters"
+    - "boundary_values"
+    - "malformed_data"
+
+# Architect Settings
+architect:
+  preferred_languages:
+    - "python"
+  complexity_threshold: 3  # 1-5 scale, above this triggers module decomposition
+  max_modules: 1
+
+# Differential Testing
+differential:
+  max_test_cases: 200
+  equivalence_threshold: 0.95  # 95% match = almost resolved
+  strict_exit_code: true
+  compare_stderr: true
+  compare_file_outputs: true
+
+# Implementation
+implementation:
+  # Keep enabled by default, but every result records this for ablation.
+  static_output_assets: true
+
+# Meta Controller
+controller:
+  max_repair_iterations: 10
+  min_probe_coverage: 0.8  # Require 80% CLI surface coverage before implementation
+  internal_holdout_ratio: 0.2  # Local cleanroom holdout; aggregate-only, never used for repair
+  holdout_seed: "rebuilder"
+  enable_early_stop: false

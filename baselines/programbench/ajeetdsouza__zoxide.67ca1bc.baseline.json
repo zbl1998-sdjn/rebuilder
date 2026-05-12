@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-11T00:16:55.430723+00:00",
+  "instance_id": "ajeetdsouza__zoxide.67ca1bc",
+  "model": "glm-5.1",
+  "config_path": "config\\settings.yaml",
+  "notes": "Official breakthrough: static-assets mini-lab candidate, aggregate-only; ProgramBench info score 37 vs previous score 18.",
+  "local": {
+    "status": "failed",
+    "resolved_rate": 0.8846153846153846,
+    "holdout_resolved_rate": 0.2857142857142857,
+    "probes_conducted": 28,
+    "iterations_used": 1
+  },
+  "official": {
+    "passed_tests": 195,
+    "total_tests": 531,
+    "pass_rate": 0.3672316384180791,
+    "score": 37,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 0
+  },
+  "submission": {
+    "path": "runs\\official_breakthrough_loop\\submission_assets_enabled_885\\ajeetdsouza__zoxide.67ca1bc\\submission.tar.gz",
+    "sha256": "4f20c04eda78df1b1eebd326f558f225639eca24f9a5b87172bcd3f441af4e63"
+  }
+}

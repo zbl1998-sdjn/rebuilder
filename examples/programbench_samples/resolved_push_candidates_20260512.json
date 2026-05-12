@@ -1,0 +1,68 @@
+[
+  {
+    "instance_id": "abishekvashok__cmatrix.5c082c6",
+    "docker_repository": "abishekvashok_1776_cmatrix.5c082c6",
+    "source_project": "abishekvashok/cmatrix",
+    "cleanroom_image": "programbench/abishekvashok_1776_cmatrix.5c082c6:task_cleanroom",
+    "task_image": "programbench/abishekvashok_1776_cmatrix.5c082c6:task",
+    "description": "ProgramBench task: abishekvashok/cmatrix (GPL-3.0) - behavioral test environment",
+    "pull_count": 564,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:30:38.016971Z"
+  },
+  {
+    "instance_id": "chmln__sd.87d1ba5",
+    "docker_repository": "chmln_1776_sd.87d1ba5",
+    "source_project": "chmln/sd",
+    "cleanroom_image": "programbench/chmln_1776_sd.87d1ba5:task_cleanroom",
+    "task_image": "programbench/chmln_1776_sd.87d1ba5:task",
+    "description": "ProgramBench task: chmln/sd (MIT) - behavioral test environment",
+    "pull_count": 183,
+    "storage_size": null,
+    "last_updated": "2026-05-03T23:32:01.105565Z"
+  },
+  {
+    "instance_id": "mgdm__htmlq.6e31bc8",
+    "docker_repository": "mgdm_1776_htmlq.6e31bc8",
+    "source_project": "mgdm/htmlq",
+    "cleanroom_image": "programbench/mgdm_1776_htmlq.6e31bc8:task_cleanroom",
+    "task_image": "programbench/mgdm_1776_htmlq.6e31bc8:task",
+    "description": "ProgramBench task: mgdm/htmlq (MIT) - behavioral test environment",
+    "pull_count": 195,
+    "storage_size": 839786271,
+    "last_updated": "2026-05-03T23:34:44.381332Z"
+  },
+  {
+    "instance_id": "rbakbashev__elfcat.52f8cc7",
+    "docker_repository": "rbakbashev_1776_elfcat.52f8cc7",
+    "source_project": "rbakbashev/elfcat",
+    "cleanroom_image": "programbench/rbakbashev_1776_elfcat.52f8cc7:task_cleanroom",
+    "task_image": "programbench/rbakbashev_1776_elfcat.52f8cc7:task",
+    "description": "ProgramBench task: rbakbashev/elfcat (Zlib) - behavioral test environment",
+    "pull_count": 148,
+    "storage_size": 872988256,
+    "last_updated": "2026-05-03T23:36:03.390037Z"
+  },
+  {
+    "instance_id": "sheepla__pingu.926d475",
+    "docker_repository": "sheepla_1776_pingu.926d475",
+    "source_project": "sheepla/pingu",
+    "cleanroom_image": "programbench/sheepla_1776_pingu.926d475:task_cleanroom",
+    "task_image": "programbench/sheepla_1776_pingu.926d475:task",
+    "description": "ProgramBench task: sheepla/pingu (MIT) - behavioral test environment",
+    "pull_count": 184,
+    "storage_size": 684813061,
+    "last_updated": "2026-05-03T23:36:54.138982Z"
+  },
+  {
+    "instance_id": "tomnomnom__gron.88a6234",
+    "docker_repository": "tomnomnom_1776_gron.88a6234",
+    "source_project": "tomnomnom/gron",
+    "cleanroom_image": "programbench/tomnomnom_1776_gron.88a6234:task_cleanroom",
+    "task_image": "programbench/tomnomnom_1776_gron.88a6234:task",
+    "description": "ProgramBench task: tomnomnom/gron (MIT) - behavioral test environment",
+    "pull_count": 213,
+    "storage_size": 685453297,
+    "last_updated": "2026-05-03T23:37:26.306712Z"
+  }
+]
