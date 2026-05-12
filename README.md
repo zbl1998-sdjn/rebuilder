@@ -49,6 +49,10 @@ Verified locally on Windows with Docker Desktop:
 - Fifth non-zoxide official generalization baseline:
   `wfxr__csview.8ac4de0` ProgramBench info score `57` (`190/335` counted
   tests; raw eval `200/348`) from a holdout-gated min-50 closed-loop candidate.
+- Sixth non-zoxide official generalization baseline:
+  `mgdm__htmlq.6e31bc8` ProgramBench info score `8` (`118/1455` counted
+  tests; raw eval `720/2058`) from a holdout-gated min-50 closed-loop candidate.
+  Local holdout was `10/11`, so this is another local-vs-official gap datapoint.
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
@@ -557,6 +561,9 @@ Completed:
   local-vs-official gap datapoint
 - Official csview aggregate baseline: `190/335` counted tests,
   ProgramBench info score `57` from a holdout-gated min-50 closed-loop candidate
+- Official htmlq aggregate baseline: `118/1455` counted tests,
+  ProgramBench info score `8`; retained as an aggregate-only local-vs-official
+  gap datapoint
 - Official eval summaries can now print both raw and counted metrics when
   `--instance-id` is supplied, reducing scoring-scope mixups
 - Candidate ranking script scans completed `runs/**/result.json` files and

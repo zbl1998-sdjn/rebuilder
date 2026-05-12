@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-12T11:22:10.640859+00:00",
+  "instance_id": "mgdm__htmlq.6e31bc8",
+  "model": "glm-5.1",
+  "config_path": "config/settings.yaml",
+  "notes": "Official closed-loop aggregate baseline: 118/1455 counted tests, score 8; raw eval 720/2058; aggregate-only.",
+  "local": {
+    "status": "failed",
+    "resolved_rate": 0.7254901960784313,
+    "holdout_resolved_rate": 0.9090909090909091,
+    "probes_conducted": 57,
+    "iterations_used": 4
+  },
+  "official": {
+    "passed_tests": 118,
+    "total_tests": 1455,
+    "pass_rate": 0.08109965635738832,
+    "score": 8,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 0
+  },
+  "submission": {
+    "path": "runs\\programbench_official_eval\\submission_htmlq_min50_20260512\\mgdm__htmlq.6e31bc8\\submission.tar.gz",
+    "sha256": "e80f7c888cfcd86f1ca373d12bc824a5a9805448bd417ff43fc21b18b5353129"
+  }
+}
