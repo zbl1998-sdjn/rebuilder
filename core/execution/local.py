@@ -50,9 +50,7 @@ class LocalExecutorBackend(ExecutorBackend):
             )
             start = time.perf_counter()
             stdout_data, stderr_data = await asyncio.wait_for(
-                proc.communicate(
-                    input=test_case.stdin.encode("utf-8") if test_case.stdin else None
-                ),
+                proc.communicate(input=test_case.stdin.encode("utf-8")),
                 timeout=self.timeout,
             )
             elapsed_ms = (time.perf_counter() - start) * 1000

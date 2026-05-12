@@ -47,3 +47,14 @@ async def test_wsl_executor_runs_python_with_linux_paths_and_env(tmp_path):
     assert "DATA_DIR=/mnt/" in shell_script
     assert "PLAIN=x" in shell_script
     assert "--flag value" in shell_script
+
+
+@pytest.mark.asyncio
+async def test_wsl_executor_closes_empty_stdin(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("import sys\nsys.stdin.read()\nprint('done')\n", encoding="utf-8")
+    runner = CaptureRunner()
+
+    await WSLExecutorBackend(runner=runner).run(script, TestCase(name="empty-stdin"))
+
+    assert runner.input_bytes == b""

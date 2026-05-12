@@ -33,7 +33,7 @@ async def test_docker_backend_runs_with_network_disabled_and_mounted_workdir():
     result = await backend.run(executable, TestCase(name="help", args=["--help"], stdin="in"))
 
     command, input_bytes, timeout = runner.calls[0]
-    assert command[:3] == ["docker", "run", "--rm"]
+    assert command[:4] == ["docker", "run", "--rm", "-i"]
     assert "--network" in command
     assert "none" in command
     assert "-v" in command
@@ -69,6 +69,21 @@ async def test_docker_backend_passes_env_vars_and_can_reuse_workdir(tmp_path):
     assert "_ZO_DATA_DIR=.rebuilder-state/zoxide" in first_command
     assert "BAD-NAME=ignored" not in first_command
     assert first_command[first_command.index("-v") + 1] == second_command[second_command.index("-v") + 1]
+
+
+@pytest.mark.asyncio
+async def test_docker_backend_closes_empty_stdin():
+    runner = FakeDockerRunner()
+    backend = DockerExecutorBackend(runner=runner)
+    executable = DockerExecutable(
+        image="programbench/owner_1776_repo.abcdef0:task_cleanroom",
+        executable_path="/workspace/executable",
+    )
+
+    await backend.run(executable, TestCase(name="empty-stdin"))
+
+    _command, input_bytes, _timeout = runner.calls[0]
+    assert input_bytes == b""
 
 
 @pytest.mark.asyncio

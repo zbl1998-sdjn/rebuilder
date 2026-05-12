@@ -63,7 +63,7 @@ class WSLExecutorBackend(ExecutorBackend):
         workdir.mkdir(parents=True, exist_ok=True)
         self._write_input_files(workdir, test_case)
         command = self._wsl_command(Path(executable), workdir, test_case)
-        input_bytes = test_case.stdin.encode("utf-8") if test_case.stdin else None
+        input_bytes = test_case.stdin.encode("utf-8")
         start = time.perf_counter()
         try:
             completed = await asyncio.to_thread(

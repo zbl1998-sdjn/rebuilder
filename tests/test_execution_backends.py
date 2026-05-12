@@ -42,6 +42,22 @@ async def test_local_executor_backend_forces_utf8_for_python_scripts(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_local_executor_backend_closes_empty_stdin(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text(
+        "import sys\n"
+        "data = sys.stdin.read()\n"
+        "print(f'len={len(data)}')\n",
+        encoding="utf-8",
+    )
+
+    result = await LocalExecutorBackend(timeout=1).run(script, TestCase(name="stdin-eof"))
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "len=0"
+
+
+@pytest.mark.asyncio
 async def test_local_executor_backend_ignores_tempdir_cleanup_errors(tmp_path, monkeypatch):
     script = tmp_path / "tool.py"
     script.write_text("print('ok')\n", encoding="utf-8")
