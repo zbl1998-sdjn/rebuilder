@@ -476,6 +476,16 @@ Rank completed runs for the next official-eval candidates:
 python scripts\rank_programbench_candidates.py --limit 10 --only-unofficial
 ```
 
+Run a full gated closed loop for one candidate:
+
+```powershell
+python scripts\run_official_closed_loop.py burntsushi__xsv.f430466 `
+  --runs runs\closed_loop_official_20260512_xsv `
+  --eval-run-name submission_xsv_closed_loop_20260512 `
+  --pull `
+  --force
+```
+
 ## Current Roadmap
 
 Completed:
