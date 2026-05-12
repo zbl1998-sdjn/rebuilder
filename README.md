@@ -368,6 +368,15 @@ Summarize official evaluation JSON without feeding details back into repair:
 python scripts\summarize_programbench_eval.py submissions\ajeetdsouza__zoxide.67ca1bc\ajeetdsouza__zoxide.67ca1bc.eval.json
 ```
 
+When an instance id is available, include counted-test filtering to avoid
+mixing raw eval totals with the ProgramBench scoring subset:
+
+```powershell
+python scripts\summarize_programbench_eval.py `
+  runs\programbench_official_eval\submission_hotfix_retry\abishekvashok__cmatrix.5c082c6\abishekvashok__cmatrix.5c082c6.eval.json `
+  --instance-id abishekvashok__cmatrix.5c082c6
+```
+
 ## Record A Baseline
 
 After official evaluation, freeze aggregate metrics and the submission hash:
@@ -458,6 +467,12 @@ print(paths.markdown_path)
 $script | python -
 ```
 
+Rank completed runs for the next official-eval candidates:
+
+```powershell
+python scripts\rank_programbench_candidates.py --limit 10 --only-unofficial
+```
+
 ## Current Roadmap
 
 Completed:
@@ -506,6 +521,10 @@ Completed:
 - Phase-level LLM usage metadata is now recorded when provider responses expose usage
 - Improved cmatrix official aggregate baseline: `415/508` counted tests,
   ProgramBench info score `82` from the assets-disabled manual hotfix retry
+- Official eval summaries can now print both raw and counted metrics when
+  `--instance-id` is supplied, reducing scoring-scope mixups
+- Candidate ranking script scans completed `runs/**/result.json` files and
+  deprioritizes tasks with existing official eval artifacts or baseline records
 
 Next priorities:
 
