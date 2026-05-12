@@ -15,7 +15,7 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `189 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- Full unit test suite: `213 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
 - GLM-5.1 coding-plan endpoint smoke tested
 - Official ProgramBench cleanroom zoxide sample runs end-to-end
 - Frozen zoxide local smoke baseline: `16.7%` local differential equivalence
@@ -41,6 +41,11 @@ Verified locally on Windows with Docker Desktop:
 - Third non-zoxide official generalization baseline:
   `jarun__nnn.cb2c535` ProgramBench info score `79` (`379/477` counted
   tests; raw eval `1101/1796`) from a closed-loop, assets-disabled candidate
+- Fourth non-zoxide official generalization baseline:
+  `psampaz__go-mod-outdated.bb79367` ProgramBench info score `15`
+  (`43/285` counted tests; raw eval `91/342`) from a holdout-gated min-50
+  closed-loop candidate. Local holdout was `11/11`, so this is also a tracked
+  local-vs-official generalization gap.
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
@@ -544,10 +549,15 @@ Completed:
   ProgramBench info score `82` from the assets-disabled manual hotfix retry
 - Official jarun nnn aggregate baseline: `379/477` counted tests,
   ProgramBench info score `79` from a closed-loop, assets-disabled candidate
+- Official go-mod-outdated aggregate baseline: `43/285` counted tests,
+  ProgramBench info score `15`; retained as an aggregate-only baseline and
+  local-vs-official gap datapoint
 - Official eval summaries can now print both raw and counted metrics when
   `--instance-id` is supplied, reducing scoring-scope mixups
 - Candidate ranking script scans completed `runs/**/result.json` files and
   deprioritizes tasks with existing official eval artifacts or baseline records
+- Candidate ranking now deprioritizes low-sample holdout results so unreliable
+  local gates do not outrank runs with at least 10 holdout cases
 
 Next priorities:
 

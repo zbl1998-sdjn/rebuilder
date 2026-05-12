@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-12T10:28:53.122934+00:00",
+  "instance_id": "psampaz__go-mod-outdated.bb79367",
+  "model": "glm-5.1",
+  "config_path": "config/settings.yaml",
+  "notes": "Official closed-loop aggregate baseline: 43/285 counted tests, score 15; raw eval 91/342; aggregate-only.",
+  "local": {
+    "status": "partial",
+    "resolved_rate": 0.9565217391304348,
+    "holdout_resolved_rate": 1.0,
+    "probes_conducted": 57,
+    "iterations_used": 4
+  },
+  "official": {
+    "passed_tests": 43,
+    "total_tests": 285,
+    "pass_rate": 0.15087719298245614,
+    "score": 15,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 0
+  },
+  "submission": {
+    "path": "runs\\programbench_official_eval\\submission_go_mod_outdated_min50_20260512\\psampaz__go-mod-outdated.bb79367\\submission.tar.gz",
+    "sha256": "5d10f9624e1cc209e924a977075651ba8160886d7604bb2ae87e8c0cec2cff81"
+  }
+}
