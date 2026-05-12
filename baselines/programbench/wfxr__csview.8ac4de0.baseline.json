@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-12T10:52:13.614801+00:00",
+  "instance_id": "wfxr__csview.8ac4de0",
+  "model": "glm-5.1",
+  "config_path": "config/settings.yaml",
+  "notes": "Official closed-loop aggregate baseline: 190/335 counted tests, score 57; raw eval 200/348; aggregate-only.",
+  "local": {
+    "status": "failed",
+    "resolved_rate": 0.9230769230769231,
+    "holdout_resolved_rate": 0.9166666666666666,
+    "probes_conducted": 59,
+    "iterations_used": 3
+  },
+  "official": {
+    "passed_tests": 190,
+    "total_tests": 335,
+    "pass_rate": 0.5671641791044776,
+    "score": 57,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 0
+  },
+  "submission": {
+    "path": "runs\\programbench_official_eval\\submission_csview_min50_20260512\\wfxr__csview.8ac4de0\\submission.tar.gz",
+    "sha256": "f5be7123a94605b2b14d6f577db7d278688316c09ca6ef490721b92b82642a01"
+  }
+}
