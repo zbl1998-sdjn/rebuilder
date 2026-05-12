@@ -61,6 +61,10 @@ Verified locally on Windows with Docker Desktop:
   `burntsushi__xsv.f430466` ProgramBench info score `41` (`484/1186` counted
   tests; raw eval `579/1317`) after stdin execution fixes and repair-next
   continuation. Local exploration was `43/45`, with holdout `8/10`.
+- Eighth non-zoxide official generalization baseline:
+  `tomnomnom__gron.88a6234` ProgramBench info score `26` (`117/457` counted
+  tests; raw eval `117/457`) after stdin execution fixes and repair-next
+  continuation. Local holdout was `11/11`, while exploration stayed `42/51`.
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
