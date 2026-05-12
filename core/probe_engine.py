@@ -258,7 +258,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
                     continue
                 tc = TestCase(
                     name=item.get("name", "unnamed"),
-                    args=item.get("args", []),
+                    args=self._sanitize_probe_args(item.get("args", [])),
                     stdin=item.get("stdin", ""),
                     input_files=item.get("input_files", {}),
                     description=item.get("description", ""),
@@ -271,6 +271,70 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
             return cases
         except ValueError:
             return []
+
+    def _sanitize_probe_args(self, args: list[str]) -> list[str]:
+        sanitized = [str(arg) for arg in args]
+        for index, arg in enumerate(list(sanitized)):
+            if self._is_run_multiplier_flag(arg):
+                next_index = index + 1
+                if next_index < len(sanitized):
+                    sanitized[next_index] = self._safe_run_multiplier_value(sanitized[next_index])
+                continue
+            flag, separator, value = arg.partition("=")
+            if separator and self._is_run_multiplier_flag(flag):
+                sanitized[index] = f"{flag}={self._safe_run_multiplier_value(value)}"
+        if self._needs_ping_count_guard(sanitized):
+            sanitized = ["-c", "1", *sanitized]
+        return sanitized
+
+    def _needs_ping_count_guard(self, args: list[str]) -> bool:
+        if not self._looks_like_ping_tool():
+            return False
+        if not args or any(self._is_run_multiplier_arg(arg) for arg in args):
+            return False
+        if any(arg in {"--help", "-h", "--version", "-V", "version"} for arg in args):
+            return False
+        return any(self._looks_like_host_arg(arg) for arg in args)
+
+    def _looks_like_ping_tool(self) -> bool:
+        text = self.documentation.lower()
+        return any(token in text for token in ("ping", "icmp", "packet loss", "rtt"))
+
+    def _is_run_multiplier_arg(self, value: str) -> bool:
+        flag = value.partition("=")[0]
+        return self._is_run_multiplier_flag(flag)
+
+    def _is_run_multiplier_flag(self, value: str) -> bool:
+        return value in {
+            "-c",
+            "-n",
+            "--count",
+            "--repeat",
+            "--repeats",
+            "--iterations",
+            "--limit",
+        }
+
+    def _looks_like_host_arg(self, value: str) -> bool:
+        if value.startswith("-"):
+            return False
+        lower = value.lower()
+        return (
+            lower == "localhost"
+            or lower.endswith(".com")
+            or lower.endswith(".org")
+            or lower.endswith(".net")
+            or re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", lower) is not None
+        )
+
+    def _safe_run_multiplier_value(self, value: str) -> str:
+        try:
+            parsed = int(value, 0)
+        except ValueError:
+            return value
+        if parsed <= 0:
+            return "1"
+        return str(min(parsed, 3))
     
     async def _run_test(self, tc: TestCase):
         """Execute a test case and store the result."""

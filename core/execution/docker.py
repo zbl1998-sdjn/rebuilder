@@ -7,6 +7,7 @@ import re
 import subprocess
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -42,13 +43,47 @@ class SubprocessDockerRunner:
         input_bytes: bytes | None,
         timeout: float,
     ) -> subprocess.CompletedProcess[bytes]:
-        return subprocess.run(
+        container_name = self._container_name(command)
+        proc = subprocess.Popen(
             command,
-            input=input_bytes,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
+        try:
+            stdout, stderr = proc.communicate(input=input_bytes, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if container_name:
+                self._force_remove_container(container_name)
+            proc.kill()
+            stdout, stderr = proc.communicate()
+            raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=proc.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    def _container_name(self, command: list[str]) -> str | None:
+        if "--name" not in command:
+            return None
+        index = command.index("--name")
+        if index + 1 >= len(command):
+            return None
+        return command[index + 1]
+
+    def _force_remove_container(self, container_name: str) -> None:
+        try:
+            subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                input=b"",
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
 
 
 class DockerExecutorBackend(ExecutorBackend):
@@ -111,6 +146,7 @@ class DockerExecutorBackend(ExecutorBackend):
         test_case: TestCase,
     ) -> list[str]:
         mount = f"{workdir.resolve()}:/rebuilder-work"
+        container_name = f"rebuilder-{uuid.uuid4().hex[:16]}"
         env_args = [
             item
             for key, value in sorted(test_case.env_vars.items())
@@ -122,6 +158,8 @@ class DockerExecutorBackend(ExecutorBackend):
             "run",
             "--rm",
             "-i",
+            "--name",
+            container_name,
             "--network",
             "none",
             "-v",

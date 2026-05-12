@@ -34,6 +34,8 @@ async def test_docker_backend_runs_with_network_disabled_and_mounted_workdir():
 
     command, input_bytes, timeout = runner.calls[0]
     assert command[:4] == ["docker", "run", "--rm", "-i"]
+    assert "--name" in command
+    assert command[command.index("--name") + 1].startswith("rebuilder-")
     assert "--network" in command
     assert "none" in command
     assert "-v" in command
@@ -43,6 +45,42 @@ async def test_docker_backend_runs_with_network_disabled_and_mounted_workdir():
     assert timeout == 10.0
     assert result.stdout == "ok\n"
     assert result.exit_code == 0
+
+
+def test_subprocess_docker_runner_removes_named_container_on_timeout(monkeypatch):
+    removed = []
+
+    class HangingProcess:
+        returncode = None
+
+        def communicate(self, input=None, timeout=None):
+            if timeout is not None:
+                raise subprocess.TimeoutExpired(["docker"], timeout)
+            return b"", b""
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: HangingProcess())
+
+    def fake_run(command, **kwargs):
+        removed.append(command)
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    from core.execution.docker import SubprocessDockerRunner
+
+    runner = SubprocessDockerRunner()
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        runner.run(
+            ["docker", "run", "--rm", "-i", "--name", "rebuilder-test", "image"],
+            b"",
+            0.01,
+        )
+
+    assert removed == [["docker", "rm", "-f", "rebuilder-test"]]
 
 
 @pytest.mark.asyncio

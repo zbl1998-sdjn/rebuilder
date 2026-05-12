@@ -230,5 +230,41 @@ def test_probe_engine_ignores_non_object_test_case_entries(mock_llm, mock_execut
     assert cases[0].name == "valid"
 
 
+def test_probe_engine_clamps_unbounded_count_like_probe_args(mock_llm, mock_executable):
+    engine = ProbeEngine(
+        executable=mock_executable,
+        documentation="ping-like tool",
+        llm_client=mock_llm,
+    )
+
+    raw = (
+        '[{"name":"huge_count",'
+        '"args":["-c","1000000000","--count=2147483647","-n","0","--repeat=0x10","localhost"],'
+        '"stdin":"","input_files":{},"description":"stress count"}]'
+    )
+
+    cases = engine._parse_test_cases(raw)
+
+    assert cases[0].args == ["-c", "3", "--count=3", "-n", "1", "--repeat=3", "localhost"]
+
+
+def test_probe_engine_adds_count_guard_to_ping_host_probe(mock_llm, mock_executable):
+    engine = ProbeEngine(
+        executable=mock_executable,
+        documentation="pingu sends ICMP ping packets to a host",
+        llm_client=mock_llm,
+    )
+
+    raw = (
+        '[{"name":"bare_host",'
+        '"args":["127.0.0.1"],'
+        '"stdin":"","input_files":{},"description":"bare host"}]'
+    )
+
+    cases = engine._parse_test_cases(raw)
+
+    assert cases[0].args == ["-c", "1", "127.0.0.1"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

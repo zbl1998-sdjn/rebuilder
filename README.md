@@ -15,7 +15,7 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `222 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- Full unit test suite: `230 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
 - GLM-5.1 coding-plan endpoint smoke tested
 - Official ProgramBench cleanroom zoxide sample runs end-to-end
 - Frozen zoxide local smoke baseline: `16.7%` local differential equivalence
@@ -155,6 +155,7 @@ Supporting systems:
 - `core/execution`: local and Docker execution backends
 - `core/probing`: deterministic corpus splitting, stateful plans, shell-init probe planning, and file I/O probe planning
 - `core/coverage`: behavior-only coverage reports that drive coverage-gap probing
+- `core/profiling`: task-domain strategy hints for spec, implementation, and repair prompts
 - `core/implementation`: implementation-time generated asset guardrails
 - `core/repair`: failure clustering
 - `core/evaluation`: official eval summaries and exploration failure reports
@@ -586,10 +587,27 @@ Completed:
   deprioritizes tasks with existing official eval artifacts or baseline records
 - Candidate ranking now deprioritizes low-sample holdout results so unreliable
   local gates do not outrank runs with at least 10 holdout cases
+- Task-domain profiling now infers strategy hints such as `network_ping`,
+  `csv_table`, `json_transform`, and `html_selector` from docs, CLI surface,
+  and probe output, then injects those hints into spec, implementation, and
+  repair prompts without overriding exact behavior contracts.
+- Docker reference probes now run containers with unique names and force-remove
+  timed-out containers, preventing network-style tools from hanging the closed
+  loop on long-running commands.
+- LLM-generated probe args now clamp count-like run multipliers (`-c`,
+  `--count`, `--repeat`, etc.) to bounded positive values so stress and
+  zero-count cases do not turn into accidental soak tests.
+- Ping-like tasks also guard bare host probes by adding a one-packet count,
+  avoiding indefinite default ping behavior during cleanroom exploration.
+- `sheepla__pingu.926d475` was rerun with task profiling and the new probe
+  safety guards. It failed the local gate (`3/11` holdout, `27.3%`), so the
+  official evaluator was not invoked; this is the current network/ping
+  generalization gap case.
 
 Next priorities:
 
 - Investigate the local-vs-official gap using only aggregate official results and fresh cleanroom probes
+- Improve network/ping implementation strategy using the pingu local gate failure, without using official failure details
 - Run asset-enabled vs asset-disabled ablations before attributing score gains
 - Broaden file I/O probes to directory outputs and config/cache side effects
 - Shell init parity validation across more task shells and init flags

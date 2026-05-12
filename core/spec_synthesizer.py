@@ -9,6 +9,7 @@ from typing import Any, List
 
 from core.data_models import BehaviorContract, BehaviorSample, ProgramSpec, Invariant, CLISurface
 from core.llm_output import extract_json_object
+from core.profiling import infer_task_profile
 from llm_clients.base import BaseLLMClient, Message
 from llm_clients.options import configured_max_tokens
 from pydantic import ValidationError
@@ -28,7 +29,7 @@ Output only a JSON object with these fields:
 - "edge_cases": List of known edge cases and error conditions
 - "stateful": Boolean indicating if the program maintains state across runs
 - "invariants": List of objects with "description", "type" (deterministic/idempotent/monotonic/ordered), "confidence" (0-1)
-- "complexity_hints": Object with estimated algorithmic complexity
+- "complexity_hints": Object with estimated algorithmic complexity and task-domain notes when evident
 - "raw_observations": Your detailed technical observations
 
 Be precise and conservative. If you are uncertain about a behavior, note it as speculative."""
@@ -82,8 +83,28 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
                 cli_surface=cli_surface,
                 failed_output=failed_output,
             )
+        self._attach_task_profile(spec, documentation, cli_surface, corpus)
         spec.behavior_contracts = self._contracts_from_corpus(corpus)
         return spec
+
+    def _attach_task_profile(
+        self,
+        spec: ProgramSpec,
+        documentation: str,
+        cli_surface: CLISurface,
+        corpus: List[BehaviorSample],
+    ) -> None:
+        profile = infer_task_profile(
+            documentation=documentation,
+            cli_surface=cli_surface,
+            corpus=corpus,
+        )
+        hints = dict(spec.complexity_hints or {})
+        existing = hints.get("task_profile")
+        if isinstance(existing, dict):
+            profile = {**profile, **existing}
+        hints["task_profile"] = profile
+        spec.complexity_hints = hints
     
     def _format_corpus(self, corpus: List[BehaviorSample]) -> str:
         """Format behavior samples into a readable text for the LLM."""

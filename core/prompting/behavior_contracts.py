@@ -23,6 +23,26 @@ def spec_prompt_dict(spec: ProgramSpec) -> dict:
     return json_safe_value(spec.model_dump(exclude={"behavior_contracts"}))
 
 
+def task_profile_prompt(spec: ProgramSpec, *, purpose: str = "implementation") -> str:
+    profile = spec.complexity_hints.get("task_profile")
+    if not isinstance(profile, dict):
+        return ""
+    hints_key = "repair_hints" if purpose == "repair" else "implementation_hints"
+    payload = {
+        "primary_domain": profile.get("primary_domain", "generic_cli"),
+        "domains": profile.get("domains", ["generic_cli"]),
+        "confidence": profile.get("confidence", "fallback"),
+        "input_format_hints": profile.get("input_format_hints", []),
+        hints_key: profile.get(hints_key, []),
+        "evidence_keywords": profile.get("evidence_keywords", []),
+    }
+    return (
+        "Task strategy profile inferred from cleanroom docs and probes. "
+        "Use it as domain guidance, but never override exact observed contracts:\n"
+        f"{json.dumps(payload, indent=2, ensure_ascii=False)}\n\n"
+    )
+
+
 def behavior_contract_prompt(spec: ProgramSpec) -> str:
     if not spec.behavior_contracts:
         return ""

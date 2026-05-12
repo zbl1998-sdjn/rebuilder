@@ -22,6 +22,7 @@ from core.prompting.behavior_contracts import (
     behavior_contract_prompt,
     implementation_behavior_contract_prompt,
     spec_prompt_json,
+    task_profile_prompt,
 )
 from core.llm_output import extract_json_value
 from llm_clients.base import BaseLLMClient, Message
@@ -326,6 +327,7 @@ Do not include prose."""
             ),
             self.llm.user_prompt(
                 f"Specification:\n{spec_prompt_json(spec)}\n\n"
+                f"{task_profile_prompt(spec)}"
                 f"{self._contract_prompt(spec)}"
                 f"Architecture Blueprint:\n{blueprint.model_dump_json(indent=2)}\n\n"
                 f"Generate only {self._expected_entry_point(blueprint)}."
@@ -345,6 +347,7 @@ Do not include prose."""
             ),
             self.llm.user_prompt(
                 f"Specification:\n{spec_prompt_json(spec)}\n\n"
+                f"{task_profile_prompt(spec)}"
                 f"{self._contract_prompt(spec)}"
                 f"Architecture Blueprint:\n{blueprint.model_dump_json(indent=2)}\n\n"
                 "Existing entrypoint files:\n"
@@ -387,6 +390,7 @@ Do not include prose."""
             ),
             self.llm.user_prompt(
                 f"Specification:\n{spec_prompt_json(spec)}\n\n"
+                f"{task_profile_prompt(spec)}"
                 f"{self._contract_prompt(spec)}"
                 f"Architecture Blueprint:\n{blueprint.model_dump_json(indent=2)}\n\n"
                 f"Integrity issues:\n{json.dumps(issue_summary, indent=2)}\n\n"

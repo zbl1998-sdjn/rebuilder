@@ -14,6 +14,7 @@ from core.prompting.behavior_contracts import (
     behavior_contract_prompt,
     spec_prompt_dict,
     spec_prompt_json,
+    task_profile_prompt,
 )
 from core.llm_output import extract_json_object
 from core.repair.clustering import FailureCluster
@@ -73,6 +74,7 @@ Be specific and actionable."""
             self.llm.system_prompt(self.SYSTEM_PROMPT),
             self.llm.user_prompt(
                 f"Failure context:\n{json.dumps(context, indent=2, ensure_ascii=False)}\n\n"
+                f"{task_profile_prompt(spec, purpose='repair')}"
                 f"{behavior_contract_prompt(spec)}"
                 f"Diagnose and propose repair strategy as JSON."
             ),
@@ -109,6 +111,7 @@ Be specific and actionable."""
             self.llm.system_prompt(self.SYSTEM_PROMPT),
             self.llm.user_prompt(
                 f"Failure context:\n{json.dumps(context, indent=2, ensure_ascii=False)}\n\n"
+                f"{task_profile_prompt(spec, purpose='repair')}"
                 f"{behavior_contract_prompt(spec)}"
                 f"Diagnose the shared root cause and propose one repair strategy as JSON."
             ),
@@ -197,6 +200,7 @@ Be specific and actionable."""
                 f"Repair strategy: {strategy.description}\n\n"
                 f"Hints: {strategy.hints}\n\n"
                 f"Specification:\n{spec_prompt_json(spec)}\n\n"
+                f"{task_profile_prompt(spec, purpose='repair')}"
                 f"{behavior_contract_prompt(spec)}"
                 f"Current files to modify:\n{json.dumps(file_context, indent=2)}\n\n"
                 f"Apply the fix and output the corrected files."
