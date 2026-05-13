@@ -102,6 +102,25 @@ def test_task_profile_prompt_exposes_domain_hints():
     assert "csv.reader" in prompt
 
 
+def test_csv_profile_exposes_xsv_subcommand_and_sample_guidance():
+    spec = ProgramSpec(
+        complexity_hints={
+            "task_profile": infer_task_profile(
+                documentation="xsv csv toolkit with sample command and many subcommand variants"
+            )
+        }
+    )
+
+    implementation_prompt = task_profile_prompt(spec)
+    repair_prompt = task_profile_prompt(spec, purpose="repair")
+
+    assert "xsv-like multi-command tools" in implementation_prompt
+    assert "documented subcommand variant order" in implementation_prompt
+    assert "reservoir sampling" in implementation_prompt
+    assert "allowed-variants list" in repair_prompt
+    assert "Python random defaults" in repair_prompt
+
+
 def test_json_transform_profile_exposes_gron_mode_guidance():
     spec = ProgramSpec(
         complexity_hints={

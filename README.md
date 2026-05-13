@@ -15,7 +15,7 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `237 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- Full unit test suite: `238 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
 - GLM-5.1 coding-plan endpoint smoke tested
 - Official ProgramBench cleanroom zoxide sample runs end-to-end
 - Frozen zoxide local smoke baseline: `16.7%` local differential equivalence
@@ -59,9 +59,9 @@ Verified locally on Windows with Docker Desktop:
   After the stdin fix, refreshed local holdout is `7/11`, so this is retained as
   a stale-gate local-vs-official gap datapoint.
 - Seventh non-zoxide official generalization baseline:
-  `burntsushi__xsv.f430466` ProgramBench info score `41` (`484/1186` counted
-  tests; raw eval `579/1317`) after stdin execution fixes and repair-next
-  continuation. Local exploration was `43/45`, with holdout `8/10`.
+  `burntsushi__xsv.f430466` ProgramBench info score improved from `41` to
+  `44` (`518/1186` counted tests; raw eval `593/1317`) after CSV/xsv strategy
+  pack refinement. Local holdout was `9/11`.
 - Eighth non-zoxide official generalization baseline:
   `tomnomnom__gron.88a6234` ProgramBench info score `26` (`117/457` counted
   tests; raw eval `117/457`) after stdin execution fixes and repair-next
@@ -620,6 +620,8 @@ Completed:
   gap datapoint
 - Official clog-cli aggregate baseline: `236/575` counted tests,
   ProgramBench info score `41` from a task-profile min-50 closed-loop candidate
+- Improved xsv official aggregate baseline: `518/1186` counted tests,
+  ProgramBench info score `44` from CSV/xsv strategy-pack refinement
 - Official eval summaries can now print both raw and counted metrics when
   `--instance-id` is supplied, reducing scoring-scope mixups
 - Candidate ranking script scans completed `runs/**/result.json` files and
@@ -637,6 +639,9 @@ Completed:
 - Strategy packs now include sharper JSON/gron, HTML selector, Rust/clap archive,
   and Go dependency-report guidance. The archive/clap guidance lifted
   `agourlay__zip-password-finder.704700d` from official score `26` to `36`.
+- CSV/table strategy guidance now includes xsv-style subcommand variant order and
+  sample-command semantics; this lifted `burntsushi__xsv.f430466` from official
+  score `41` to `44`.
 - Docker reference probes now run containers with unique names and force-remove
   timed-out containers, preventing network-style tools from hanging the closed
   loop on long-running commands.

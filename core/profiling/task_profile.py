@@ -94,16 +94,22 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
             "Centralize input acquisition from stdin, '-' and file arguments; keep text newline handling explicit.",
             "Use csv.reader/csv.writer with dialect parameters inferred from flags and contracts rather than splitting rows manually.",
             "Represent rows as lists plus optional header metadata so select/search/sort/count commands share parsing logic.",
+            "For xsv-like multi-command tools, keep the documented subcommand variant order exact in invalid-command errors; do not alphabetize or reorder help variants.",
+            "For sample-like commands, model whether observations require deterministic seeded sampling, reservoir sampling, or contract-specific replay; preserve headers and row order exactly.",
             "Preserve output delimiter, quoting mode, empty fields, record order, and final newline exactly as shown in contracts.",
         ),
         repair_playbook=(
             "When stdout differs, first compare delimiter, quoting, header inclusion, selected column order, and row sort stability.",
             "When file/STDIN cases differ, verify '-' handling and whether no-arg mode reads stdin or prints usage.",
+            "For invalid subcommand failures, diff the complete allowed-variants list including order, quoting, commas, and line wrapping before changing parser logic.",
+            "For sample failures, compare header retention, deterministic seed behavior, reservoir-vs-index sampling, selected row order, and whether stdin/file input changes randomness.",
             "When stderr differs, copy observed CSV parse diagnostics and missing-column wording before changing parser internals.",
         ),
         anti_patterns=(
             "Do not implement CSV by str.split(',') because quoted delimiters and embedded newlines will break.",
             "Do not strip or collapse whitespace in fields unless observed behavior proves it.",
+            "Do not sort subcommands or enum variants unless the reference output sorts them.",
+            "Do not use Python random defaults for sampling when observed outputs are deterministic.",
         ),
     ),
     ProfileRule(

@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-12T13:27:49.609726+00:00",
+  "recorded_at": "2026-05-13T03:25:06.649978+00:00",
   "instance_id": "burntsushi__xsv.f430466",
   "model": "glm-5.1",
   "config_path": "config/settings.yaml",
-  "notes": "Official closed-loop aggregate baseline: 484/1186 counted tests, score 41; raw eval 579/1317; aggregate-only.",
+  "notes": "Official closed-loop aggregate baseline: 518/1186 counted tests, score 44; raw eval 593/1317; aggregate-only.",
   "local": {
-    "status": "partial",
-    "resolved_rate": 0.9555555555555556,
-    "holdout_resolved_rate": 0.8,
-    "probes_conducted": 50,
+    "status": "failed",
+    "resolved_rate": 0.8636363636363636,
+    "holdout_resolved_rate": 0.8181818181818182,
+    "probes_conducted": 55,
     "iterations_used": 3
   },
   "official": {
-    "passed_tests": 484,
+    "passed_tests": 518,
     "total_tests": 1186,
-    "pass_rate": 0.40809443507588533,
-    "score": 41,
+    "pass_rate": 0.43676222596964587,
+    "score": 44,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 1
   },
   "submission": {
-    "path": "runs\\programbench_official_eval\\xsv_repairnext_20260512\\burntsushi__xsv.f430466\\submission.tar.gz",
-    "sha256": "88a87f1d071af67dd7b32ebab3784a4a3d521e66bd50dba5ad953c8c7db0b818"
+    "path": "runs\\programbench_official_eval\\xsv_strategy_pack_v2_20260513\\burntsushi__xsv.f430466\\submission.tar.gz",
+    "sha256": "b0950020b9566c783b47e8843d1108adc744a5fc5888d40b6193fffb7dd3c251"
   }
 }
