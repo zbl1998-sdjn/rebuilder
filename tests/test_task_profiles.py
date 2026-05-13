@@ -208,8 +208,13 @@ def test_go_dependency_profile_exposes_go_flag_and_table_guidance():
     assert "newline-delimited JSON" in implementation_prompt
     assert "-help prints usage to stderr with exit 0" in implementation_prompt
     assert "centered headers" in implementation_prompt
+    assert "markdown style" in implementation_prompt
+    assert "literal true" in implementation_prompt
     assert "Go flag package wording" in repair_prompt
     assert "Do not use argparse" in repair_prompt
+    assert "odd/even padding" in repair_prompt
+    assert "separator dash counts" in repair_prompt
+    assert "unexpected EOF" in repair_prompt
 
 
 def test_archive_profile_exposes_clap_usage_guidance():
