@@ -174,10 +174,19 @@ def test_html_selector_profile_exposes_mutation_and_panic_guidance():
     repair_prompt = task_profile_prompt(spec, purpose="repair")
 
     assert "--remove-nodes" in implementation_prompt
+    assert "no-selector invocation" in implementation_prompt
+    assert "--filename/--output" in implementation_prompt
+    assert "-p/--pretty output" in implementation_prompt
     assert "exit 101" in implementation_prompt
+    assert "single quotes around main" in implementation_prompt
+    assert "malformed HTML" in repair_prompt
     assert "html/head/body wrappers" in repair_prompt
+    assert "empty HTML skeleton" in repair_prompt
     assert "Rust panic text" in repair_prompt
+    assert "unknown-flag" in repair_prompt
     assert "code, kind, and message fields" in repair_prompt
+    assert "written file contents" in repair_prompt
+    assert "newline placement around text nodes" in repair_prompt
 
 
 def test_go_dependency_profile_exposes_go_flag_and_table_guidance():
