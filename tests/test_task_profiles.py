@@ -137,10 +137,28 @@ def test_json_transform_profile_exposes_gron_mode_guidance():
     assert "--values modes" in implementation_prompt
     assert "invalid character 'x' looking for beginning of value" in implementation_prompt
     assert "--colorize" in implementation_prompt
+    assert "--stream mode" in implementation_prompt
+    assert "json = [];" in implementation_prompt
+    assert "root initialization only" in implementation_prompt
+    assert "never assign integer keys into dict roots" in implementation_prompt
+    assert "infer the root container" in implementation_prompt
+    assert "--no-sort" in implementation_prompt
+    assert "invalid character 'o' in literal null" in implementation_prompt
+    assert "1.5e10" in implementation_prompt
+    assert "failed to form statements" in implementation_prompt
     assert "assignment RHS values" in repair_prompt
     assert "Python JSONDecodeError" in repair_prompt
+    assert "falsey/None value" in repair_prompt
     assert "statement has no value" in repair_prompt
     assert "0m vs 0;22m" in repair_prompt
+    assert "json = {};" in repair_prompt
+    assert "child-assignment code" in repair_prompt
+    assert "no root assignment error" in repair_prompt
+    assert "original physical input line" in repair_prompt
+    assert "no-sort insertion mode" in repair_prompt
+    assert "scientific notation" in repair_prompt
+    assert "json[0], json[1]" in repair_prompt
+    assert "backslash-escaped single quotes" in repair_prompt
 
 
 def test_html_selector_profile_exposes_mutation_and_panic_guidance():
