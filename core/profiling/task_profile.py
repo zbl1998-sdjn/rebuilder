@@ -52,13 +52,16 @@ PROFILE_RULES: tuple[ProfileRule, ...] = (
             "Build a manual CLI parser or tightly configured parser for help/version/count/privilege/host so option spelling and channels can match observations.",
             "Implement host normalization and address-family handling with socket.getaddrinfo where safe; special-case localhost, 127.0.0.1, and ::1 only when observed.",
             "Generate the observed ping transcript shape: header, per-packet sequence lines, blank lines, statistics separator, transmitted/received/loss summary, and RTT line when samples show it.",
+            "For localhost/loopback pingu transcripts, keep the exact ASCII-art prefix, single blank-line placement, seq numbering from 0, '32bytes' spelling, ttl, and microsecond unit formatting.",
             "Use bounded subprocess/socket attempts only when required; otherwise synthesize deterministic measured fields from observed ranges and exact formatting contracts.",
             "Implement parse errors for count/host/unknown flags before network behavior, including duplicated original error text when contracts show it.",
         ),
         repair_playbook=(
             "If replacement prints parser/debug summaries such as 'Parsed: host=', replace them with observed ping transcript rendering.",
             "For stdout failures, diff header text, seq numbering, byte count, ttl/time unit spelling, statistics separator, packet-loss wording, and final newline.",
+            "For pingu localhost stdout failures, compare whether there is exactly one newline after the header, whether time is a µs value rather than 0s, and whether the packet statistics line includes '=> 1 received (0% loss)'.",
             "For stderr failures, copy observed parse-error phrasing, flag aliases, quoting, and follow-up '[ ERROR ] parse error' lines before changing algorithmic behavior.",
+            "For special-host failures, compare DNS lookup wording, multicast write errors, resolver addresses, and whether stdout still contains a zero-transmitted statistics block before stderr.",
             "For timeout failures, cap count-like loops and default host probes; never introduce an unbounded ping loop.",
         ),
         anti_patterns=(

@@ -250,6 +250,8 @@ def test_repair_profile_prompt_exposes_repair_playbook():
     assert "repair_hints" in prompt
     assert "repair_playbook" in prompt
     assert "Parsed: host=" in prompt
+    assert "µs value rather than 0s" in prompt
+    assert "multicast write errors" in prompt
     assert "implementation_playbook" not in prompt
 
 
