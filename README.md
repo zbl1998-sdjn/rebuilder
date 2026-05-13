@@ -15,7 +15,7 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `231 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- Full unit test suite: `237 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
 - GLM-5.1 coding-plan endpoint smoke tested
 - Official ProgramBench cleanroom zoxide sample runs end-to-end
 - Frozen zoxide local smoke baseline: `16.7%` local differential equivalence
@@ -32,8 +32,9 @@ Verified locally on Windows with Docker Desktop:
 - Current zoxide official evaluator baseline: ProgramBench info score `37`
   (`195/531` counted tests) from the static-assets mini-lab candidate
 - First non-zoxide official generalization baseline:
-  `agourlay__zip-password-finder.704700d` ProgramBench info score `26`
-  (`180/680` counted tests) from the assets-disabled mini-lab candidate
+  `agourlay__zip-password-finder.704700d` ProgramBench info score improved from
+  `26` to `36` (`248/680` counted tests; raw eval `340/792`) after the
+  archive/clap strategy-pack closed loop
 - Second non-zoxide official generalization baseline:
   `abishekvashok__cmatrix.5c082c6` ProgramBench info score improved from
   `77` to `82` (`415/508` counted tests; raw eval `674/769`) from the
@@ -105,7 +106,7 @@ as a solved-program generator. The current official baselines show that the
 architecture can consistently produce non-zero cleanroom results across
 multiple task families, with strong individual signals such as `cmatrix` score
 `82`, `nnn` score `79`, `csview` score `57`, and several additional non-zoxide
-baselines in the `26`-`41` range. This is meaningful progress beyond a naive
+baselines in the `36`-`41` range. This is meaningful progress beyond a naive
 single-shot prompt, but it is not yet a general solution.
 
 Current system assessment: ReBuilder is an approximately `8/10` research
@@ -606,6 +607,9 @@ Completed:
   ProgramBench info score `82` from the assets-disabled manual hotfix retry
 - Official jarun nnn aggregate baseline: `379/477` counted tests,
   ProgramBench info score `79` from a closed-loop, assets-disabled candidate
+- Improved zip-password-finder official aggregate baseline: `248/680` counted
+  tests, ProgramBench info score `36` from an archive/clap strategy-pack
+  closed-loop candidate
 - Official go-mod-outdated aggregate baseline: `43/285` counted tests,
   ProgramBench info score `15`; retained as an aggregate-only baseline and
   local-vs-official gap datapoint
@@ -630,6 +634,9 @@ Completed:
   implementation playbooks, repair playbooks, and anti-patterns. The first
   packs cover network/ping, CSV/table, JSON transform, HTML selector,
   archive/compression, terminal UI, and filesystem tools.
+- Strategy packs now include sharper JSON/gron, HTML selector, Rust/clap archive,
+  and Go dependency-report guidance. The archive/clap guidance lifted
+  `agourlay__zip-password-finder.704700d` from official score `26` to `36`.
 - Docker reference probes now run containers with unique names and force-remove
   timed-out containers, preventing network-style tools from hanging the closed
   loop on long-running commands.
@@ -646,7 +653,7 @@ Completed:
 Next priorities:
 
 - Investigate the local-vs-official gap using only aggregate official results and fresh cleanroom probes
-- Validate the new domain strategy packs on pingu/htmlq/gron/xsv-style reruns without using official failure details
+- Validate and refine domain strategy packs on pingu/htmlq/gron/xsv-style reruns without using official failure details
 - Run asset-enabled vs asset-disabled ablations before attributing score gains
 - Broaden file I/O probes to directory outputs and config/cache side effects
 - Shell init parity validation across more task shells and init flags
@@ -673,7 +680,7 @@ MIT License.
 
 ## 2026-05-11 官方突破进展
 
-- agourlay__zip-password-finder: 首次非 zoxide 任务官方突破，aggregate-only，ProgramBench info 分数 26。
+- agourlay__zip-password-finder: 首次非 zoxide 任务官方突破，aggregate-only；后续 archive/clap strategy pack 闭环将 ProgramBench info 分数从 26 提升到 36。
 - abishekvashok__cmatrix: 第二个非 zoxide 官方突破，assets-disabled mini-lab ablation 候选，ProgramBench info 分数 77。
 - ajeetdsouza__zoxide: 官方分数 37（前为 18），aggregate-only。
 

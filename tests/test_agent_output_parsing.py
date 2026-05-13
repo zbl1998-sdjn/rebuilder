@@ -212,6 +212,50 @@ def test_implementer_strips_nested_code_fence_from_file_content(tmp_path):
     assert (tmp_path / "main.py").read_text(encoding="utf-8") == "print('ok')"
 
 
+def test_implementer_can_replace_existing_directory_with_file(tmp_path):
+    stale_dir = tmp_path / "tool"
+    stale_dir.mkdir()
+    (stale_dir / "main.py").write_text("print('old')\n", encoding="utf-8")
+    raw = json.dumps(
+        {
+            "files": [
+                {"path": "tool", "content": "#!/usr/bin/env python3\nprint('ok')\n"},
+            ]
+        }
+    )
+
+    codebase = ImplementerAgent(MockLLMClient())._parse_codebase(
+        raw,
+        ArchitectureBlueprint(language="python", entry_point="tool"),
+        tmp_path,
+    )
+
+    assert codebase.files == {"tool": "#!/usr/bin/env python3\nprint('ok')\n"}
+    assert (tmp_path / "tool").is_file()
+    assert (tmp_path / "tool").read_text(encoding="utf-8") == "#!/usr/bin/env python3\nprint('ok')\n"
+
+
+def test_implementer_can_replace_existing_file_with_directory(tmp_path):
+    (tmp_path / "pkg").write_text("old", encoding="utf-8")
+    raw = json.dumps(
+        {
+            "files": [
+                {"path": "pkg/main.py", "content": "print('ok')\n"},
+            ]
+        }
+    )
+
+    codebase = ImplementerAgent(MockLLMClient())._parse_codebase(
+        raw,
+        ArchitectureBlueprint(language="python", entry_point="pkg/main.py"),
+        tmp_path,
+    )
+
+    assert codebase.files == {"pkg/main.py": "print('ok')\n"}
+    assert (tmp_path / "pkg").is_dir()
+    assert (tmp_path / "pkg" / "main.py").read_text(encoding="utf-8") == "print('ok')\n"
+
+
 def test_implementer_parses_truncated_jsonish_manifest(tmp_path):
     raw = """```json
 {

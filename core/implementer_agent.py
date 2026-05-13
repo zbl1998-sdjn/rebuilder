@@ -464,9 +464,7 @@ Do not include prose."""
 
         # Write files to disk
         for filepath, content in files.items():
-            fpath = output_dir / filepath
-            fpath.parent.mkdir(parents=True, exist_ok=True)
-            fpath.write_text(content, encoding="utf-8")
+            self._write_generated_file(output_dir, filepath, content)
         
         # Determine executable path based on language/build system
         executable_path = self._determine_executable(output_dir, blueprint, build_script)
@@ -628,9 +626,32 @@ Do not include prose."""
     def _write_files(self, output_dir: Path, files: Dict[str, str]) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         for filepath, content in files.items():
-            target = output_dir / filepath
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            self._write_generated_file(output_dir, filepath, content)
+
+    def _write_generated_file(
+        self,
+        output_dir: Path,
+        filepath: str,
+        content: str,
+    ) -> None:
+        target = self._prepare_generated_file_target(output_dir, filepath)
+        target.write_text(content, encoding="utf-8")
+
+    def _prepare_generated_file_target(self, output_dir: Path, filepath: str) -> Path:
+        root = output_dir.resolve()
+        target = (output_dir / filepath).resolve()
+        target.relative_to(root)
+
+        current = output_dir
+        for part in PurePosixPath(filepath).parts[:-1]:
+            current = current / part
+            if current.exists() and not current.is_dir():
+                current.unlink()
+            current.mkdir(exist_ok=True)
+
+        if target.exists() and target.is_dir():
+            shutil.rmtree(target)
+        return target
 
     def _parse_code_blocks(self, text: str) -> list[tuple[str, str]]:
         import re

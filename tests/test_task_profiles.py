@@ -54,6 +54,7 @@ def test_profile_detects_common_data_tool_domains():
         ("xsv csv headers columns delimiter", "csv_table"),
         ("htmlq selects html nodes with CSS selector attributes", "html_selector"),
         ("gron transforms JSON objects and arrays into assignment paths", "json_transform"),
+        ("go-mod-outdated reads go list -u -m -json modules and renders outdated dependency table", "go_dependency_report"),
     ]
 
     for docs, expected in cases:
@@ -99,6 +100,89 @@ def test_task_profile_prompt_exposes_domain_hints():
     assert "implementation_hints" in prompt
     assert "implementation_playbook" in prompt
     assert "csv.reader" in prompt
+
+
+def test_json_transform_profile_exposes_gron_mode_guidance():
+    spec = ProgramSpec(
+        complexity_hints={
+            "task_profile": infer_task_profile(
+                documentation="gron transforms JSON objects and arrays into assignment paths"
+            )
+        }
+    )
+
+    implementation_prompt = task_profile_prompt(spec)
+    repair_prompt = task_profile_prompt(spec, purpose="repair")
+
+    assert "gron-like tools" in implementation_prompt
+    assert "--values modes" in implementation_prompt
+    assert "invalid character 'x' looking for beginning of value" in implementation_prompt
+    assert "--colorize" in implementation_prompt
+    assert "assignment RHS values" in repair_prompt
+    assert "Python JSONDecodeError" in repair_prompt
+    assert "statement has no value" in repair_prompt
+    assert "0m vs 0;22m" in repair_prompt
+
+
+def test_html_selector_profile_exposes_mutation_and_panic_guidance():
+    spec = ProgramSpec(
+        complexity_hints={
+            "task_profile": infer_task_profile(
+                documentation="htmlq selects html nodes with CSS selector attributes and remove-nodes"
+            )
+        }
+    )
+
+    implementation_prompt = task_profile_prompt(spec)
+    repair_prompt = task_profile_prompt(spec, purpose="repair")
+
+    assert "--remove-nodes" in implementation_prompt
+    assert "exit 101" in implementation_prompt
+    assert "html/head/body wrappers" in repair_prompt
+    assert "Rust panic text" in repair_prompt
+    assert "code, kind, and message fields" in repair_prompt
+
+
+def test_go_dependency_profile_exposes_go_flag_and_table_guidance():
+    spec = ProgramSpec(
+        complexity_hints={
+            "task_profile": infer_task_profile(
+                documentation=(
+                    "go-mod-outdated reads newline-delimited go list -u -m -json module "
+                    "records and prints outdated dependency tables"
+                )
+            )
+        }
+    )
+
+    implementation_prompt = task_profile_prompt(spec)
+    repair_prompt = task_profile_prompt(spec, purpose="repair")
+
+    assert "go_dependency_report" in implementation_prompt
+    assert "newline-delimited JSON" in implementation_prompt
+    assert "-help prints usage to stderr with exit 0" in implementation_prompt
+    assert "centered headers" in implementation_prompt
+    assert "Go flag package wording" in repair_prompt
+    assert "Do not use argparse" in repair_prompt
+
+
+def test_archive_profile_exposes_clap_usage_guidance():
+    spec = ProgramSpec(
+        complexity_hints={
+            "task_profile": infer_task_profile(
+                documentation="zip-password-finder opens encrypted zip archives with password charset flags"
+            )
+        }
+    )
+
+    implementation_prompt = task_profile_prompt(spec)
+    repair_prompt = task_profile_prompt(spec, purpose="repair")
+
+    assert "archive_compression" in implementation_prompt
+    assert "Rust/clap-style archive CLIs" in implementation_prompt
+    assert "every required flag in the Usage line" in implementation_prompt
+    assert "complete clap-style Usage line" in repair_prompt
+    assert "Do not use argparse" in repair_prompt
 
 
 def test_repair_profile_prompt_exposes_repair_playbook():
