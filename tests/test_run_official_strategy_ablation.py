@@ -58,6 +58,7 @@ def args(**overrides):
         "keep_going": False,
         "dry_run": False,
         "ack_external_llm_docker": False,
+        "ack_local_llm_docker": False,
     }
     defaults.update(overrides)
     return type("Args", (), defaults)()
@@ -85,6 +86,17 @@ def test_build_closed_loop_command_passes_external_execution_ack():
     command = build_closed_loop_command(args(ack_external_llm_docker=True), "baseline_no_adaptive")
 
     assert "--ack-external-llm-docker" in command
+
+
+def test_build_closed_loop_command_passes_local_llm_ack():
+    command = build_closed_loop_command(
+        args(config="config/smoke_file_bridge.yaml", ack_local_llm_docker=True),
+        "baseline_no_adaptive",
+    )
+
+    assert command[command.index("--config") + 1] == "config/smoke_file_bridge.yaml"
+    assert "--ack-local-llm-docker" in command
+    assert "--ack-external-llm-docker" not in command
 
 
 def test_build_closed_loop_command_passes_holdout_improvement_gate():
@@ -327,6 +339,56 @@ def test_main_requires_external_llm_docker_ack(monkeypatch, capsys):
     assert exc_info.value.code == 2
     assert not called
     assert "--ack-external-llm-docker" in captured.err
+
+
+def test_main_accepts_local_llm_ack_for_file_bridge_config(monkeypatch):
+    calls = []
+
+    def fake_run(command, *, timeout_seconds):
+        calls.append(command)
+
+    monkeypatch.setattr("scripts.run_official_strategy_ablation.run_command", fake_run)
+
+    run_strategy_ablation_main(
+        [
+            "owner__repo.abcdef0",
+            "--config",
+            "config/smoke_file_bridge.yaml",
+            "--variants",
+            "baseline_no_adaptive",
+            "--ack-local-llm-docker",
+        ]
+    )
+
+    assert len(calls) == 1
+    assert "--ack-local-llm-docker" in calls[0]
+    assert "--ack-external-llm-docker" not in calls[0]
+
+
+def test_main_rejects_local_llm_ack_for_external_config(monkeypatch, capsys):
+    called = False
+
+    def fake_run(command, *, timeout_seconds):
+        nonlocal called
+        called = True
+        raise AssertionError("external config with local ack should not run")
+
+    monkeypatch.setattr("scripts.run_official_strategy_ablation.run_command", fake_run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_strategy_ablation_main(
+            [
+                "owner__repo.abcdef0",
+                "--config",
+                "config/settings.yaml",
+                "--ack-local-llm-docker",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert not called
+    assert "--ack-local-llm-docker" in captured.err
 
 
 def test_subprocess_env_forces_utf8_python_output(monkeypatch):

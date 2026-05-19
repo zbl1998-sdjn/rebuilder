@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -28,6 +29,7 @@ from core.experiments import (  # noqa: E402
 )
 from core.programbench.catalog import load_sample_catalog, select_sample  # noqa: E402
 from core.submission import parse_runtime_smoke_dimensions, runtime_smoke_metadata  # noqa: E402
+from llm_clients.factory import load_config  # noqa: E402
 from scripts.audit_holdout_improvement import audit_holdout_improvement  # noqa: E402
 
 AssetMode = Literal["config", "enabled", "disabled"]
@@ -232,8 +234,62 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "call external LLM APIs and Docker; --skip-official-eval only disables official eval."
         ),
     )
+    parser.add_argument(
+        "--ack-local-llm-docker",
+        action="store_true",
+        help=(
+            "Required alternative for local-only LLM configs. Acknowledge that the run "
+            "may use Docker and a file_bridge or loopback local_openai provider, but not external LLM APIs."
+        ),
+    )
     parser.add_argument("--force", action="store_true", help="Force ProgramBench official re-evaluation")
     return parser.parse_args(argv)
+
+
+def _is_loopback_url(base_url: object) -> bool:
+    parsed = urlparse(str(base_url or ""))
+    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+        return False
+    host = parsed.hostname.lower()
+    if host == "localhost":
+        return True
+    return host.startswith("127.") or host == "::1"
+
+
+def is_local_llm_config(config_path: str | Path) -> bool:
+    try:
+        config = load_config(str(config_path))
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
+    llm_config = config.get("llm") if isinstance(config, dict) else None
+    if not isinstance(llm_config, dict):
+        return False
+    provider = llm_config.get("provider")
+    if provider == "file_bridge":
+        return True
+    if provider == "local_openai":
+        local_config = llm_config.get("local_openai")
+        return isinstance(local_config, dict) and _is_loopback_url(local_config.get("base_url"))
+    return False
+
+
+def has_execution_ack(args: argparse.Namespace) -> bool:
+    if args.ack_external_llm_docker:
+        return True
+    return bool(args.ack_local_llm_docker and is_local_llm_config(args.config))
+
+
+def execution_ack_error(args: argparse.Namespace) -> str:
+    if args.ack_local_llm_docker:
+        return (
+            "ERROR: local LLM ack --ack-local-llm-docker is only valid for file_bridge or "
+            "loopback local_openai configs; use --ack-external-llm-docker for external providers."
+        )
+    return (
+        "ERROR: --ack-external-llm-docker is required because the closed-loop run "
+        "may call external LLM APIs and Docker. For file_bridge or loopback local_openai "
+        "configs, pass --ack-local-llm-docker instead."
+    )
 
 
 def build_paths(instance_id: str, runs_root: Path | str, official_eval_root: Path | str, eval_run_name: str = ""):
@@ -630,13 +686,8 @@ def enforce_holdout_improvement_gate(args: argparse.Namespace, paths: ClosedLoop
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    if not args.ack_external_llm_docker:
-        print(
-            "ERROR: --ack-external-llm-docker is required because the closed-loop run "
-            "may call external LLM APIs and Docker.",
-            file=sys.stderr,
-            flush=True,
-        )
+    if not has_execution_ack(args):
+        print(execution_ack_error(args), file=sys.stderr, flush=True)
         raise SystemExit(2)
     strategy_variant = None
     if args.strategy_registry or args.strategy_variant:

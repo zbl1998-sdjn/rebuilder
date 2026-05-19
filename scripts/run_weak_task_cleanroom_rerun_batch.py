@@ -21,6 +21,7 @@ from scripts.summarize_holdout_trends import (  # noqa: E402
     safe_path_slug,
 )
 from core.submission import parse_runtime_smoke_dimensions  # noqa: E402
+from scripts.run_official_closed_loop import is_local_llm_config  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -30,6 +31,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("instance_ids", nargs="*", help="Optional weak-task ids to include")
     parser.add_argument("--runs", default="runs", help="Historical runs root")
     parser.add_argument("--output-root", default="runs/weak_task_cleanroom_next", help="Rerun output root")
+    parser.add_argument("--config", default="config/settings.yaml", help="ReBuilder config path")
     parser.add_argument("--limit", type=positive_int, default=3, help="Maximum weak-task targets to include")
     parser.add_argument("--min-holdout-cases", type=non_negative_int, default=10)
     parser.add_argument("--min-holdout-rate", type=rate_float, default=0.8)
@@ -56,6 +58,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Required with --execute. Acknowledge that child runs may call external "
             "LLM APIs and Docker while official eval remains disabled by this wrapper."
+        ),
+    )
+    parser.add_argument(
+        "--ack-local-llm-docker",
+        action="store_true",
+        help=(
+            "Required alternative with --execute for file_bridge or loopback local_openai configs. "
+            "Acknowledge local LLM handoff plus Docker, without external LLM APIs."
         ),
     )
     parser.add_argument(
@@ -131,6 +141,8 @@ def build_weak_rerun_command(task_id: str, args: argparse.Namespace) -> list[str
         sys.executable,
         "scripts/run_weak_task_cleanroom_rerun.py",
         task_id,
+        "--config",
+        args.config,
         "--runs",
         run_root.as_posix(),
         "--min-holdout-rate",
@@ -159,6 +171,8 @@ def build_weak_rerun_command(task_id: str, args: argparse.Namespace) -> list[str
         command.append("--execute")
         if args.ack_external_llm_docker:
             command.append("--ack-external-llm-docker")
+        elif args.ack_local_llm_docker:
+            command.append("--ack-local-llm-docker")
     else:
         command.append("--dry-run")
     return command
@@ -215,10 +229,22 @@ def run_command(command: list[str], *, timeout_seconds: float) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.execute and not args.dry_run and not args.ack_external_llm_docker:
+    if args.execute and not args.dry_run and not (
+        args.ack_external_llm_docker
+        or (args.ack_local_llm_docker and is_local_llm_config(args.config))
+    ):
+        if args.ack_local_llm_docker:
+            print(
+                "ERROR: local LLM ack --ack-local-llm-docker is only valid for file_bridge or "
+                "loopback local_openai configs; use --ack-external-llm-docker for external providers.",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 2
         print(
             "ERROR: --execute requires --ack-external-llm-docker because child runs "
-            "may call external LLM APIs and Docker.",
+            "may call external LLM APIs and Docker. For file_bridge or loopback local_openai "
+            "configs, pass --ack-local-llm-docker instead.",
             file=sys.stderr,
             flush=True,
         )

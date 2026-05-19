@@ -18,6 +18,7 @@ from scripts.run_official_closed_loop import (
     select_strategy_variant,
     holdout_cases,
     holdout_rate,
+    is_local_llm_config,
     parse_args,
     should_retry_near_miss,
     smoke_contract_axis_count,
@@ -75,6 +76,12 @@ def test_main_requires_external_llm_docker_ack(capsys):
     captured = capsys.readouterr()
     assert exc_info.value.code == 2
     assert "--ack-external-llm-docker" in captured.err
+
+
+def test_local_llm_ack_detection_accepts_only_non_external_configs():
+    assert is_local_llm_config("config/smoke_file_bridge.yaml")
+    assert is_local_llm_config("config/smoke_local_openai.yaml")
+    assert not is_local_llm_config("config/settings.yaml")
 
 
 def test_build_paths_uses_stable_nested_layout():

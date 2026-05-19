@@ -219,6 +219,61 @@ def test_execute_mode_runs_command(monkeypatch):
     assert seen["timeout_seconds"] == 12
 
 
+def test_execute_mode_allows_local_llm_ack_for_file_bridge_config(monkeypatch):
+    seen = {}
+
+    def fake_run_command(command, *, timeout_seconds):
+        seen["command"] = command
+        seen["timeout_seconds"] = timeout_seconds
+        return 7
+
+    monkeypatch.setattr("scripts.run_weak_task_cleanroom_rerun.run_command", fake_run_command)
+
+    exit_code = main(
+        [
+            "sharkdp__hexyl.2e26437",
+            "--config",
+            "config/smoke_file_bridge.yaml",
+            "--execute",
+            "--ack-local-llm-docker",
+            "--command-timeout-seconds",
+            "12",
+        ]
+    )
+
+    assert exit_code == 7
+    assert seen["command"][2] == "sharkdp__hexyl.2e26437"
+    assert "--ack-local-llm-docker" in seen["command"]
+    assert "--ack-external-llm-docker" not in seen["command"]
+    assert seen["timeout_seconds"] == 12
+
+
+def test_execute_mode_rejects_local_ack_for_external_config(monkeypatch, capsys):
+    called = False
+
+    def fake_run_command(command, *, timeout_seconds):
+        nonlocal called
+        called = True
+        return 1
+
+    monkeypatch.setattr("scripts.run_weak_task_cleanroom_rerun.run_command", fake_run_command)
+
+    exit_code = main(
+        [
+            "sharkdp__hexyl.2e26437",
+            "--config",
+            "config/settings.yaml",
+            "--execute",
+            "--ack-local-llm-docker",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert not called
+    assert "local LLM" in captured.err
+
+
 def test_execute_mode_requires_external_llm_docker_ack(monkeypatch, capsys):
     called = False
 

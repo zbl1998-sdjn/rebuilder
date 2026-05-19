@@ -101,6 +101,30 @@ def test_build_weak_rerun_command_for_execute_forwards_ack_without_official_eval
     assert command[command.index("--require-runtime-smoke-dimensions") + 1] == "args,input_files"
 
 
+def test_build_weak_rerun_command_can_forward_local_llm_ack():
+    args = parse_args(
+        [
+            "--runs",
+            "runs/history",
+            "--output-root",
+            "runs/weak_next",
+            "--config",
+            "config/smoke_file_bridge.yaml",
+            "--execute",
+            "--ack-local-llm-docker",
+        ]
+    )
+
+    command = build_weak_rerun_command("task.hexyl", args)
+
+    assert command[:3] == [sys.executable, "scripts/run_weak_task_cleanroom_rerun.py", "task.hexyl"]
+    assert command[command.index("--config") + 1] == "config/smoke_file_bridge.yaml"
+    assert "--execute" in command
+    assert "--ack-local-llm-docker" in command
+    assert "--ack-external-llm-docker" not in command
+    assert "--official-eval-root" not in command
+
+
 def test_execute_mode_requires_external_llm_docker_ack(monkeypatch, capsys, tmp_path):
     runs = tmp_path / "runs"
     write_result(runs / "hexyl", "task.hexyl", 0.2, 10)
