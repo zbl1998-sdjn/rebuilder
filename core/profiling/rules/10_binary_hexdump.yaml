@@ -1,0 +1,85 @@
+domain: binary_hexdump
+keywords:
+- hexyl
+- hexdump
+- hex viewer
+- hex dump
+- binary viewer
+- bytes
+- byte offset
+- offset
+- block-size
+- color-scheme
+- character table
+- no-characters
+- no-position
+- panels
+- border
+formats:
+- binary
+- bytes
+- hex
+- file
+implementation_hints:
+- Treat input as bytes, not text; preserve byte values, offsets, grouping, and
+  printable-character rendering exactly as observed.
+- For hexdump-style viewers, model empty stdin/no-file input, file input, length,
+  skip/offset, block-size, panels, color, border, and character-table options as
+  independent output-shaping branches.
+- Preserve long help and enum-validation diagnostics from observed clap-style
+  contracts; do not synthesize argparse-shaped usage or parser defaults.
+repair_hints:
+- For hexdump mismatches, compare byte rows, offsets, hex grouping, character
+  columns, border style, color decisions, and trailing newline placement separately.
+- For invalid option values, repair stderr wording before broad output rewrites.
+- For long help mismatches, treat the observed help text as a byte-stable output
+  contract before changing renderer logic.
+implementation_playbook:
+- For hexyl-like tools, read stdin when no file argument is provided; empty stdin
+  still exits 0 and emits the observed no-content table rather than blank output.
+- 'Render rows from raw bytes: compute offset labels, grouped hex byte cells,
+  spacing between panels, and printable-character columns from the original bytes.'
+- Keep length and skip options byte-based. Apply skip before length, and make
+  block-size/panels affect layout without changing the selected byte stream.
+- Preserve observed help text as an output contract, including exact stdout/stderr
+  channel, Usage with optional FILE, flag ordering, capitalization, blank lines,
+  and long-option value names such as --color-scheme <FORMAT>.
+- For clap-style enum errors such as invalid --color-scheme, print the exact
+  invalid-value message, possible values list, help hint, stderr channel, and exit
+  code from exploration contracts.
+- Treat color and border as rendering modes. If color is disabled or not observed,
+  do not invent ANSI escapes; if a border is observed, keep its row widths stable.
+repair_playbook:
+- If no-argument or empty-input cases hang or print nothing, check stdin closure
+  and add an explicit empty-input no-content rendering branch.
+- If output differs only in alignment, count bytes per row, panel gaps, border
+  widths, and character-column padding before changing byte selection logic.
+- If offsets drift, verify base offset after skip and whether labels are zero-
+  padded hexadecimal byte offsets.
+- If invalid --color-scheme output looks like argparse usage, replace it with the
+  observed clap-style invalid value diagnostic and possible-values block.
+- If help_long still fails after renderer fixes, repair the help contract first;
+  a generic generated help message usually regresses holdout CLI-surface cases.
+- If binary input contains non-UTF-8 bytes, keep all processing on bytes and derive
+  the character table with replacement/control glyph rules only after hex cells are
+  finalized.
+generalization_playbook:
+- Keep unseen holdout coverage for empty stdin, binary file input, non-UTF-8 bytes,
+  offset/length/block-size options, color-scheme errors, and no-content table rendering.
+- Validate dispatch for stdin vs file paths, missing files, invalid numeric options,
+  help/version, long help, invalid enum diagnostics, and color flags before tuning
+  hex cell formatting.
+- Compute offsets, grouping, borders, and character columns from bytes and layout options
+  so new binary payloads reuse the same renderer.
+validation_playbook:
+- Smoke empty stdin, binary stdin, binary file input, missing files, non-UTF-8 bytes,
+  skip/length/block-size/panel options, help/version, and invalid enum values.
+- Compare byte selection, offset labels, hex grouping, character rendering, borders,
+  ANSI/color decisions, and final newline as separate holdout categories.
+- Verify no-file/no-stdin cases terminate deterministically and never wait for an
+  interactive stream.
+anti_patterns:
+- Do not decode binary input as UTF-8 before calculating bytes or offsets.
+- Do not output a plain xxd-style dump when the observed tool uses bordered panels.
+- Do not let no-file/no-stdin cases hang waiting for interactive input.
+- Do not use argparse default usage/errors for clap-style Rust CLIs.

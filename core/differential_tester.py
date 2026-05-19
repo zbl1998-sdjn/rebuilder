@@ -4,6 +4,7 @@ Differential Tester: Compare original and replacement executable behavior.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import tempfile
@@ -17,7 +18,8 @@ from core.data_models import (
     TestCase,
     TestResult,
 )
-from core.llm_output import extract_json_value
+from core.execution.files import UnsafeInputFilePathError, safe_input_file_names
+from core.llm_output import parse_llm_test_cases
 from llm_clients.base import BaseLLMClient, Message
 from llm_clients.options import configured_max_tokens
 from utils.executable import SandboxExecutor
@@ -36,11 +38,13 @@ class DifferentialTester:
         max_test_cases: int = 200,
         original_backend=None,
         replacement_backend=None,
+        max_concurrency: int = 8,
     ):
         self.original = original
         self.replacement = replacement
         self.llm = llm_client
         self.max_test_cases = max_test_cases
+        self.max_concurrency = max(1, int(max_concurrency))
         self.orig_executor = SandboxExecutor(original, backend=original_backend)
         self.repl_executor = SandboxExecutor(replacement, backend=replacement_backend)
     
@@ -71,29 +75,68 @@ class DifferentialTester:
         self,
         behavior_corpus: List[BehaviorSample],
     ) -> List[DiffReport]:
-        """Run differential tests on all observed behaviors plus generated adversarial cases."""
-        reports = []
-        
-        # Test known behaviors from probing
+        """Run differential tests on all observed behaviors plus generated adversarial cases.
+
+        Non-stateful samples run concurrently under `max_concurrency`. Stateful
+        sequences keep step-order within a plan and a shared workdir, but
+        distinct plans may run in parallel. Output order matches the historical
+        contract: regular samples first, then stateful groups in insertion
+        order, then adversarial cases.
+        """
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        behavior_corpus = [
+            sample
+            for sample in behavior_corpus
+            if not self._has_unsafe_input_files(sample.test_case)
+        ]
         regular_samples, stateful_groups = self._split_stateful_samples(behavior_corpus)
-        for sample in regular_samples:
-            report = await self.compare(sample.test_case)
-            reports.append(report)
-        for group in stateful_groups.values():
-            reports.extend(await self._compare_stateful_sequence(group))
-        
-        # Generate and run adversarial tests if LLM available
+
+        regular_reports = await asyncio.gather(*[
+            self._compare_with_limit(sample.test_case, semaphore)
+            for sample in regular_samples
+        ])
+
+        stateful_reports_per_group = await asyncio.gather(*[
+            self._compare_stateful_sequence(group, semaphore=semaphore)
+            for group in stateful_groups.values()
+        ])
+
+        reports: List[DiffReport] = list(regular_reports)
+        for group_reports in stateful_reports_per_group:
+            reports.extend(group_reports)
+
         if self.llm:
             try:
                 adversarial = await self._generate_adversarial_tests(reports)
             except Exception as exc:
                 log.warning("Skipping adversarial test generation after LLM failure: %s", exc)
                 adversarial = []
-            for tc in adversarial:
-                report = await self.compare(tc)
-                reports.append(report)
-        
+            adversarial = [
+                tc for tc in adversarial if not self._has_unsafe_input_files(tc)
+            ]
+            adversarial_reports = await asyncio.gather(*[
+                self._compare_with_limit(tc, semaphore) for tc in adversarial
+            ])
+            reports.extend(adversarial_reports)
+
         return reports
+
+    async def _compare_with_limit(
+        self,
+        test_case: TestCase,
+        semaphore: asyncio.Semaphore,
+    ) -> DiffReport:
+        async with semaphore:
+            return await self.compare(test_case)
+
+    def _has_unsafe_input_files(self, test_case: TestCase) -> bool:
+        try:
+            safe_input_file_names(test_case.input_files)
+        except UnsafeInputFilePathError as exc:
+            log.warning("Skipping test case with unsafe input file path: %s", exc)
+            return True
+        return False
 
     def _split_stateful_samples(
         self,
@@ -129,17 +172,26 @@ class DifferentialTester:
     async def _compare_stateful_sequence(
         self,
         samples: list[BehaviorSample],
+        semaphore: asyncio.Semaphore | None = None,
     ) -> list[DiffReport]:
         reports: list[DiffReport] = []
         with tempfile.TemporaryDirectory() as orig_tmp, tempfile.TemporaryDirectory() as repl_tmp:
             orig_workdir = Path(orig_tmp)
             repl_workdir = Path(repl_tmp)
             for sample in samples:
-                report = await self._compare_in_workdirs(
-                    sample.test_case,
-                    orig_workdir,
-                    repl_workdir,
-                )
+                if semaphore is not None:
+                    async with semaphore:
+                        report = await self._compare_in_workdirs(
+                            sample.test_case,
+                            orig_workdir,
+                            repl_workdir,
+                        )
+                else:
+                    report = await self._compare_in_workdirs(
+                        sample.test_case,
+                        orig_workdir,
+                        repl_workdir,
+                    )
                 reports.append(report)
         return reports
 
@@ -237,24 +289,5 @@ class DifferentialTester:
         return self._parse_test_cases(resp.content)
     
     def _parse_test_cases(self, text: str) -> List[TestCase]:
-        """Parse LLM output into TestCase objects (duplicated from ProbeEngine for independence)."""
-        try:
-            data = extract_json_value(text.strip())
-            if isinstance(data, dict) and "test_cases" in data:
-                data = data["test_cases"]
-            if not isinstance(data, list):
-                return []
-            
-            cases = []
-            for item in data:
-                tc = TestCase(
-                    name=item.get("name", "unnamed"),
-                    args=item.get("args", []),
-                    stdin=item.get("stdin", ""),
-                    input_files=item.get("input_files", {}),
-                    description=item.get("description", ""),
-                )
-                cases.append(tc)
-            return cases
-        except ValueError:
-            return []
+        """Parse LLM-generated adversarial test cases from a chat response."""
+        return parse_llm_test_cases(text)

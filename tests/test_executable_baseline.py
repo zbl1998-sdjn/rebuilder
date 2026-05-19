@@ -42,3 +42,15 @@ def test_load_task_prefers_script_or_wrapper_over_fake_windows_exe(tmp_path):
 
     assert executable.name == "program.py"
     assert docs == "docs"
+
+
+def test_load_task_reads_mkd_documentation(tmp_path):
+    task = tmp_path / "task"
+    task.mkdir()
+    (task / "program.py").write_text("print('py')\n", encoding="utf-8")
+    (task / "README.mkd").write_text("mkd docs", encoding="utf-8")
+
+    executable, docs = load_task(task)
+
+    assert executable.name == "program.py"
+    assert docs == "mkd docs"

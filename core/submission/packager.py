@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import io
 import tarfile
 from pathlib import Path
@@ -16,14 +17,22 @@ class SubmissionPackager:
         "program.exe",
         "result.json",
         "session.json",
+        "submission.tar.gz",
     }
     EXCLUDED_DIRS = {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
         "evidence",
         "reports",
         "compliance",
         "logs",
+        "node_modules",
         "__pycache__",
         ".rebuilder",
+        ".venv",
+        "venv",
     }
 
     def package(
@@ -36,20 +45,55 @@ class SubmissionPackager:
         target_dir = Path(output_root) / instance_id
         target_dir.mkdir(parents=True, exist_ok=True)
         archive = target_dir / "submission.tar.gz"
-        with tarfile.open(archive, "w:gz") as tar:
-            for path in sorted(source.rglob("*")):
-                if not path.is_file() or self._excluded(path, source):
-                    continue
-                tar.add(path, arcname=path.relative_to(source).as_posix())
-            if not (source / "compile.sh").exists():
-                compile_script = self._default_compile_script(source)
-                if compile_script:
-                    info = tarfile.TarInfo("compile.sh")
-                    payload = compile_script.encode("utf-8")
-                    info.size = len(payload)
-                    info.mode = 0o755
-                    tar.addfile(info, io.BytesIO(payload))
+        with archive.open("wb") as raw_archive:
+            with gzip.GzipFile(
+                filename="",
+                mode="wb",
+                fileobj=raw_archive,
+                mtime=0,
+            ) as gzip_archive:
+                with tarfile.open(fileobj=gzip_archive, mode="w") as tar:
+                    for path in sorted(source.rglob("*")):
+                        if not path.is_file() or self._excluded(path, source):
+                            continue
+                        tar.add(
+                            path,
+                            arcname=path.relative_to(source).as_posix(),
+                            filter=self._normalize_tarinfo,
+                        )
+                    if not (source / "compile.sh").exists():
+                        compile_script = self._default_compile_script(source)
+                        if compile_script:
+                            self._add_bytes(
+                                tar,
+                                name="compile.sh",
+                                payload=compile_script.encode("utf-8"),
+                                mode=0o755,
+                            )
         return archive
+
+    def _add_bytes(
+        self,
+        tar: tarfile.TarFile,
+        *,
+        name: str,
+        payload: bytes,
+        mode: int,
+    ) -> None:
+        info = tarfile.TarInfo(name)
+        info.size = len(payload)
+        info.mode = mode
+        tar.addfile(self._normalize_tarinfo(info), io.BytesIO(payload))
+
+    def _normalize_tarinfo(self, info: tarfile.TarInfo) -> tarfile.TarInfo:
+        executable = bool(info.mode & 0o111) or info.name == "compile.sh"
+        info.mode = 0o755 if executable else 0o644
+        info.mtime = 0
+        info.uid = 0
+        info.gid = 0
+        info.uname = ""
+        info.gname = ""
+        return info
 
     def _excluded(self, path: Path, source: Path) -> bool:
         relative = path.relative_to(source)

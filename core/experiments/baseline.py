@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,7 +25,7 @@ class BaselineRecorder:
         config_path: str,
         notes: str = "",
     ) -> Path:
-        local_payload = json.loads(Path(local_result_path).read_text(encoding="utf-8"))
+        local_payload = self._load_local_payload(Path(local_result_path), instance_id)
         official = self._load_official_summary(instance_id, official_eval_path)
         archive = Path(submission_archive_path)
         record = {
@@ -36,10 +37,10 @@ class BaselineRecorder:
             "notes": notes,
             "local": {
                 "status": local_payload.get("status"),
-                "resolved_rate": local_payload.get("resolved_rate", 0.0),
-                "holdout_resolved_rate": local_payload.get("holdout_resolved_rate"),
-                "probes_conducted": local_payload.get("probes_conducted", 0),
-                "iterations_used": local_payload.get("iterations_used", 0),
+                "resolved_rate": self._as_float(local_payload.get("resolved_rate")),
+                "holdout_resolved_rate": self._as_optional_float(local_payload.get("holdout_resolved_rate")),
+                "probes_conducted": self._as_int(local_payload.get("probes_conducted")),
+                "iterations_used": self._as_int(local_payload.get("iterations_used")),
             },
             "official": {
                 "passed_tests": official.passed_tests,
@@ -64,6 +65,42 @@ class BaselineRecorder:
             encoding="utf-8",
         )
         return record_path
+
+    def _load_local_payload(self, path: Path, instance_id: str) -> dict[str, object]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"task_id": instance_id, "status": "invalid_result"}
+        if not isinstance(payload, dict):
+            return {"task_id": instance_id, "status": "invalid_result"}
+        return payload
+
+    def _as_float(self, value: object) -> float:
+        try:
+            parsed = float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else 0.0
+
+    def _as_optional_float(self, value: object) -> float | None:
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else None
+
+    def _as_int(self, value: object) -> int:
+        if isinstance(value, bool):
+            return 0
+        try:
+            parsed = float(value or 0)
+        except (TypeError, ValueError):
+            return 0
+        if not math.isfinite(parsed) or parsed < 0 or not parsed.is_integer():
+            return 0
+        return int(parsed)
 
     def _load_official_summary(self, instance_id: str, official_eval_path: Path | str):
         return ProgramBenchEvalParser().parse(official_eval_path, instance_id=instance_id)

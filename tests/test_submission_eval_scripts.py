@@ -27,6 +27,18 @@ def test_summarize_eval_script_can_show_help():
     assert "Summarize ProgramBench eval JSON" in result.stdout
 
 
+def test_official_strategy_ablation_script_can_show_help():
+    result = subprocess.run(
+        [sys.executable, "scripts/run_official_strategy_ablation.py", "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Run official ProgramBench strategy ablations" in result.stdout
+
+
 def test_summarize_eval_script_outputs_raw_and_counted_metrics(tmp_path):
     eval_path = tmp_path / "sample.eval.json"
     eval_path.write_text(

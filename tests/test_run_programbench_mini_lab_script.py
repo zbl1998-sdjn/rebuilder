@@ -1,9 +1,13 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from core.experiments.mini_lab import MiniLabReport, MiniLabRow
 from scripts.run_programbench_mini_lab import (
     ensure_workspace,
+    main,
+    parse_args,
     select_asset_variants,
     select_mini_lab_samples,
     write_ablation_report,
@@ -35,6 +39,31 @@ def test_select_mini_lab_samples_uses_limit_when_no_instances():
     selected = select_mini_lab_samples(catalog, instances=[], limit=2)
 
     assert [item.instance_id for item in selected] == ["one", "two"]
+
+
+def test_parse_args_accepts_external_execution_ack():
+    parsed = parse_args(["--ack-external-llm-docker"])
+
+    assert parsed.ack_external_llm_docker is True
+
+
+def test_main_requires_external_llm_docker_ack_before_loading_catalog(monkeypatch, capsys):
+    called = False
+
+    def fake_load_sample_catalog(_path):
+        nonlocal called
+        called = True
+        raise AssertionError("missing ack should stop before loading catalog")
+
+    monkeypatch.setattr("scripts.run_programbench_mini_lab.load_sample_catalog", fake_load_sample_catalog)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--instances", "task.one"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert not called
+    assert "--ack-external-llm-docker" in captured.err
 
 
 def test_select_asset_variants_returns_two_roots_for_both_mode(tmp_path):

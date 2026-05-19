@@ -294,8 +294,12 @@ async def test_meta_controller_returns_implementation_metadata(monkeypatch, tmp_
     import core.meta_controller as meta_module
 
     sample = BehaviorSample(
-        test_case=TestCase(name="case"),
+        test_case=TestCase(
+            name="case",
+            description="smoke_contract:csv_table.quoted_fields adaptive_axis:csv_table.quoted_fields",
+        ),
         observed_result=TestResult(stdout="ok", exit_code=0),
+        tags=["adaptive_profile", "profile_domain:csv_table"],
     )
 
     class FakeProbeEngine:
@@ -375,6 +379,14 @@ async def test_meta_controller_returns_implementation_metadata(monkeypatch, tmp_
 
     assert result.implementation_metadata["static_output_assets_enabled"] is False
     assert result.implementation_metadata["contract_asset_status"] == "disabled"
+    assert result.implementation_metadata["probe_axis_coverage"] == {
+        "smoke_contract_axis_count": 1,
+        "adaptive_axis_count": 1,
+        "smoke_contract_domains": ["csv_table"],
+        "adaptive_domains": ["csv_table"],
+        "smoke_contract_axes": ["csv_table.quoted_fields"],
+        "adaptive_axes": ["csv_table.quoted_fields"],
+    }
 
 
 @pytest.mark.asyncio
@@ -836,6 +848,144 @@ async def test_meta_controller_rejects_regressive_repair(monkeypatch, tmp_path):
     assert (tmp_path / "sample" / "main.py").read_text(encoding="utf-8") == "print('initial')\n"
     assert not (tmp_path / "sample" / "extra.py").exists()
     assert any("Repair rejected" in log for log in result.logs)
+    decisions = result.implementation_metadata["repair_decisions"]
+    assert len(decisions) == 1
+    decision = decisions[0]
+    assert decision["cluster_kind"] == "stdout"
+    assert decision["cluster_size"] == 1
+    assert decision["pre_exploration_rate"] == 0.5
+    assert decision["post_exploration_rate"] == 0.0
+    assert decision["status"] == "rejected"
+    assert decision["reject_reason"] == "exploration_regressed"
+    assert decision["holdout_evaluated"] is False
+    assert "reports" not in decision
+    assert "original_stdout" not in decision
+    assert "replacement_stdout" not in decision
+
+
+@pytest.mark.asyncio
+async def test_meta_controller_rejects_syntax_broken_repair_before_acceptance(monkeypatch, tmp_path):
+    import core.meta_controller as meta_module
+
+    samples = [
+        BehaviorSample(
+            test_case=TestCase(name="kept_pass"),
+            observed_result=TestResult(stdout="ok", exit_code=0),
+        ),
+        BehaviorSample(
+            test_case=TestCase(name="known_fail"),
+            observed_result=TestResult(stdout="expected", exit_code=0),
+        ),
+    ]
+    initial_reports = [
+        DiffReport(
+            test_case=samples[0].test_case,
+            original_result=samples[0].observed_result,
+            replacement_result=samples[0].observed_result,
+            stdout_match=True,
+            stderr_match=True,
+            exit_code_match=True,
+            file_outputs_match=True,
+        ),
+        DiffReport(
+            test_case=samples[1].test_case,
+            original_result=samples[1].observed_result,
+            replacement_result=TestResult(stdout="wrong", exit_code=0),
+            stdout_match=False,
+            stderr_match=True,
+            exit_code_match=True,
+            file_outputs_match=True,
+        ),
+    ]
+
+    class FakeProbeEngine:
+        cli_surface = None
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def probe(self):
+            return samples
+
+    class FakeSpecSynthesizer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def synthesize(self, *args, **kwargs):
+            return ProgramSpec(summary="spec")
+
+    class FakeArchitectAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def design(self, *args, **kwargs):
+            return ArchitectureBlueprint(language="python", entry_point="main.py")
+
+    class FakeImplementerAgent:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def implement(self, spec, blueprint, output_dir):
+            output_dir.mkdir(parents=True, exist_ok=True)
+            path = output_dir / "main.py"
+            path.write_text("print('initial')\n", encoding="utf-8")
+            return Codebase(
+                root_path=output_dir,
+                language="python",
+                files={"main.py": "print('initial')\n"},
+                executable_path=path,
+            )
+
+    class FakeDifferentialTester:
+        calls = 0
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run_full_suite(self, corpus):
+            FakeDifferentialTester.calls += 1
+            return initial_reports
+
+    class FakeRepairLoop:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def diagnose_cluster(self, cluster, spec, codebase):
+            return RepairStrategy(strategy_type="fix_algorithm", description="broken repair")
+
+        async def apply_repair(self, strategy, codebase, spec):
+            (codebase.root_path / "main.py").write_text("def broken(:\n", encoding="utf-8")
+            codebase.files["main.py"] = "def broken(:\n"
+            return codebase
+
+    monkeypatch.setattr(meta_module, "ProbeEngine", FakeProbeEngine)
+    monkeypatch.setattr(meta_module, "SpecSynthesizer", FakeSpecSynthesizer)
+    monkeypatch.setattr(meta_module, "ArchitectAgent", FakeArchitectAgent)
+    monkeypatch.setattr(meta_module, "ImplementerAgent", FakeImplementerAgent)
+    monkeypatch.setattr(meta_module, "DifferentialTester", FakeDifferentialTester)
+    monkeypatch.setattr(meta_module, "RepairLoop", FakeRepairLoop)
+
+    controller = MetaController(
+        llm_client=MockLLMClient(),
+        output_root=tmp_path,
+        max_repair_iterations=1,
+    )
+
+    result = await controller.run("sample", tmp_path / "reference.py", "docs")
+
+    assert FakeDifferentialTester.calls == 2
+    assert result.resolved_rate == 0.5
+    assert result.iterations_used == 1
+    assert result.codebase.files == {"main.py": "print('initial')\n"}
+    assert (tmp_path / "sample" / "main.py").read_text(encoding="utf-8") == "print('initial')\n"
+    decisions = result.implementation_metadata["repair_decisions"]
+    assert len(decisions) == 1
+    decision = decisions[0]
+    assert decision["status"] == "rejected"
+    assert decision["reject_reason"] == "repair_integrity_failed"
+    assert decision["post_exploration_rate"] is None
+    assert "syntax error" in decision["integrity_issues"][0]
+    assert any("Repair rejected: generated candidate failed integrity check" in log for log in result.logs)
 
 
 @pytest.mark.asyncio
@@ -991,6 +1141,13 @@ async def test_meta_controller_tries_next_cluster_after_regressive_repair(monkey
     assert len(FakeRepairLoop.seen_kinds) == 2
     assert FakeRepairLoop.seen_kinds[0] != FakeRepairLoop.seen_kinds[1]
     assert any("Repair rejected" in log for log in result.logs)
+    decisions = result.implementation_metadata["repair_decisions"]
+    assert [decision["status"] for decision in decisions] == ["rejected", "accepted"]
+    assert decisions[0]["reject_reason"] == "exploration_regressed"
+    assert decisions[1]["reject_reason"] is None
+    assert decisions[1]["pre_exploration_rate"] == pytest.approx(1 / 3)
+    assert decisions[1]["post_exploration_rate"] == 1.0
+    assert all(decision["holdout_evaluated"] is False for decision in decisions)
 
 
 @pytest.mark.asyncio

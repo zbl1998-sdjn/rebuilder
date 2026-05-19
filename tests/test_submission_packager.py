@@ -1,6 +1,12 @@
+import hashlib
+import os
 import tarfile
 
 from core.submission.packager import SubmissionPackager
+
+
+def _sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_submission_packager_creates_programbench_layout(tmp_path):
@@ -41,6 +47,52 @@ def test_submission_packager_excludes_reference_and_evidence_artifacts(tmp_path)
     assert "executable" not in names
     assert "evidence/record.json" not in names
     assert ".rebuilder/implementation_raw.txt" not in names
+
+
+def test_submission_packager_excludes_local_repo_and_cache_artifacts(tmp_path):
+    generated = tmp_path / "generated" / "task"
+    generated.mkdir(parents=True)
+    (generated / "main.py").write_text("print('hi')\n", encoding="utf-8")
+    (generated / "submission.tar.gz").write_text("old archive", encoding="utf-8")
+    (generated / ".git").mkdir()
+    (generated / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+    (generated / ".pytest_cache").mkdir()
+    (generated / ".pytest_cache" / "state").write_text("cache", encoding="utf-8")
+    (generated / "node_modules").mkdir()
+    (generated / "node_modules" / "tool.js").write_text("console.log('x')\n", encoding="utf-8")
+
+    archive = SubmissionPackager().package(generated, tmp_path / "out", "sample")
+
+    with tarfile.open(archive, "r:gz") as tar:
+        names = tar.getnames()
+    assert "main.py" in names
+    assert "submission.tar.gz" not in names
+    assert ".git/config" not in names
+    assert ".pytest_cache/state" not in names
+    assert "node_modules/tool.js" not in names
+
+
+def test_submission_packager_creates_reproducible_archives_for_same_contents(tmp_path):
+    first_source = tmp_path / "first" / "task"
+    second_source = tmp_path / "second" / "task"
+    first_source.mkdir(parents=True)
+    second_source.mkdir(parents=True)
+    for source in (first_source, second_source):
+        (source / "main.py").write_text("print('hi')\n", encoding="utf-8")
+    os.utime(first_source / "main.py", (100, 100))
+    os.utime(second_source / "main.py", (200, 200))
+
+    first_archive = SubmissionPackager().package(first_source, tmp_path / "out-first", "sample")
+    second_archive = SubmissionPackager().package(second_source, tmp_path / "out-second", "sample")
+
+    assert _sha256(first_archive) == _sha256(second_archive)
+    with tarfile.open(first_archive, "r:gz") as tar:
+        main_member = tar.getmember("main.py")
+    assert main_member.mtime == 0
+    assert main_member.uid == 0
+    assert main_member.gid == 0
+    assert main_member.uname == ""
+    assert main_member.gname == ""
 
 
 def test_submission_packager_adds_compile_script_for_python_entrypoint(tmp_path):

@@ -53,6 +53,73 @@ def test_parse_repair_strategy_extracts_json_from_explanatory_text():
     assert strategy.hints == "Use the observed command name exactly."
 
 
+def test_parse_repair_strategy_normalizes_target_files():
+    raw = json.dumps(
+        {
+            "strategy_type": "fix_algorithm",
+            "description": "repair selected files",
+            "target_files": ["z.py", "a.py", "a.py", "", 7, None],
+            "hints": "dedupe target files",
+        }
+    )
+
+    strategy = RepairLoop(MockLLMClient())._parse_strategy(raw)
+
+    assert strategy.target_files == ["a.py", "z.py"]
+
+
+def test_parse_repair_strategy_accepts_single_target_file_string():
+    raw = json.dumps(
+        {
+            "strategy_type": "fix_algorithm",
+            "description": "repair selected file",
+            "target_files": "main.py",
+            "hints": "single target",
+        }
+    )
+
+    strategy = RepairLoop(MockLLMClient())._parse_strategy(raw)
+
+    assert strategy.target_files == ["main.py"]
+
+
+def test_parse_repair_strategy_normalizes_target_file_paths():
+    raw = json.dumps(
+        {
+            "strategy_type": "fix_algorithm",
+            "description": "repair nested file",
+            "target_files": [
+                "src\\main.py",
+                "./src/main.py",
+                "../escape.py",
+                "C:\\absolute.py",
+                "",
+            ],
+            "hints": "normalize paths",
+        }
+    )
+
+    strategy = RepairLoop(MockLLMClient())._parse_strategy(raw)
+
+    assert strategy.target_files == ["src/main.py"]
+
+
+def test_parse_repair_strategy_normalizes_non_string_strategy_fields():
+    raw = json.dumps(
+        {
+            "strategy_type": None,
+            "description": ["repair", "formatting"],
+            "target_files": ["main.py"],
+            "hints": "normalize strings",
+        }
+    )
+
+    strategy = RepairLoop(MockLLMClient())._parse_strategy(raw)
+
+    assert strategy.strategy_type == "fix_algorithm"
+    assert strategy.description == '["repair", "formatting"]'
+
+
 class CaptureLLM(MockLLMClient):
     def __init__(self):
         super().__init__()
@@ -169,6 +236,21 @@ async def test_diagnose_cluster_summarizes_related_failures(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_diagnose_cluster_sorts_existing_files_in_prompt(tmp_path):
+    llm = CaptureLLM()
+    cluster = FailureCluster(kind=FailureKind.STDOUT, reports=[diff("help")])
+
+    await RepairLoop(llm).diagnose_cluster(
+        cluster,
+        ProgramSpec(summary="cli tool"),
+        Codebase(root_path=tmp_path, language="python", files={"z.py": "", "a.py": ""}),
+    )
+
+    prompt = llm.messages[-1].content
+    assert prompt.index('"a.py"') < prompt.index('"z.py"')
+
+
+@pytest.mark.asyncio
 async def test_diagnose_cluster_keeps_help_tail_and_channel_guidance(tmp_path):
     llm = CaptureLLM()
     cluster = FailureCluster(kind=FailureKind.MULTIPLE, reports=[long_help_diff()])
@@ -254,6 +336,48 @@ class ApplyCaptureLLM(MockLLMClient):
         )
 
 
+class ExtraFileRepairLLM(MockLLMClient):
+    async def chat(self, messages, temperature=None, max_tokens=None, **kwargs):
+        return LLMResponse(
+            content=(
+                "--- FILE: main.py ---\n"
+                "print('fixed')\n"
+                "--- END FILE ---\n"
+                "--- FILE: extra.py ---\n"
+                "print('extra')\n"
+                "--- END FILE ---"
+            )
+        )
+
+
+class NestedFileRepairLLM(MockLLMClient):
+    async def chat(self, messages, temperature=None, max_tokens=None, **kwargs):
+        return LLMResponse(
+            content=(
+                "--- FILE: src/main.py ---\n"
+                "print('fixed')\n"
+                "--- END FILE ---\n"
+                "--- FILE: extra.py ---\n"
+                "print('extra')\n"
+                "--- END FILE ---"
+            )
+        )
+
+
+class ExtraMetadataRepairLLM(MockLLMClient):
+    async def chat(self, messages, temperature=None, max_tokens=None, **kwargs):
+        return LLMResponse(
+            content=(
+                "--- FILE: main.py ---\n"
+                "print('fixed')\n"
+                "--- END FILE ---\n"
+                "--- BUILD SCRIPT: run ---\n"
+                "python alternate.py\n"
+                "--- END BUILD ---"
+            )
+        )
+
+
 @pytest.mark.asyncio
 async def test_apply_repair_prompts_with_compact_behavior_contracts(tmp_path):
     llm = ApplyCaptureLLM()
@@ -280,3 +404,119 @@ async def test_apply_repair_prompts_with_compact_behavior_contracts(tmp_path):
     assert "no_args" in prompt
     assert "case_19" not in prompt
     assert len(prompt) < 6000
+
+
+@pytest.mark.asyncio
+async def test_apply_repair_sorts_target_file_context_in_prompt(tmp_path):
+    llm = ApplyCaptureLLM()
+
+    await RepairLoop(llm).apply_repair(
+        RepairStrategy(
+            strategy_type="fix_algorithm",
+            description="repair query behavior",
+            target_files=["z.py", "a.py"],
+        ),
+        Codebase(
+            root_path=tmp_path,
+            language="python",
+            files={"z.py": "print('z')\n", "a.py": "print('a')\n"},
+        ),
+        ProgramSpec(summary="cli tool"),
+    )
+
+    prompt = llm.messages[-1].content
+    assert prompt.index('"a.py"') < prompt.index('"z.py"')
+
+
+@pytest.mark.asyncio
+async def test_apply_repair_ignores_non_target_files_when_targets_are_specified(tmp_path):
+    codebase = Codebase(
+        root_path=tmp_path,
+        language="python",
+        files={"main.py": "print('old')\n", "keep.py": "print('keep')\n"},
+    )
+
+    repaired = await RepairLoop(ExtraFileRepairLLM()).apply_repair(
+        RepairStrategy(
+            strategy_type="fix_algorithm",
+            description="repair only main",
+            target_files=["main.py"],
+        ),
+        codebase,
+        ProgramSpec(summary="cli tool"),
+    )
+
+    assert repaired.files["main.py"] == "print('fixed')"
+    assert repaired.files["keep.py"] == "print('keep')\n"
+    assert "extra.py" not in repaired.files
+
+
+@pytest.mark.asyncio
+async def test_apply_repair_normalizes_direct_target_files(tmp_path):
+    codebase = Codebase(
+        root_path=tmp_path,
+        language="python",
+        files={"main.py": "print('old')\n", "keep.py": "print('keep')\n"},
+    )
+
+    repaired = await RepairLoop(ExtraFileRepairLLM()).apply_repair(
+        RepairStrategy(
+            strategy_type="fix_algorithm",
+            description="repair only main",
+            target_files=[" main.py "],
+        ),
+        codebase,
+        ProgramSpec(summary="cli tool"),
+    )
+
+    assert repaired.files["main.py"] == "print('fixed')"
+    assert repaired.files["keep.py"] == "print('keep')\n"
+    assert "extra.py" not in repaired.files
+
+
+@pytest.mark.asyncio
+async def test_apply_repair_normalizes_direct_target_file_paths(tmp_path):
+    codebase = Codebase(
+        root_path=tmp_path,
+        language="python",
+        files={"src/main.py": "print('old')\n", "keep.py": "print('keep')\n"},
+    )
+
+    repaired = await RepairLoop(NestedFileRepairLLM()).apply_repair(
+        RepairStrategy(
+            strategy_type="fix_algorithm",
+            description="repair nested main",
+            target_files=["src\\main.py"],
+        ),
+        codebase,
+        ProgramSpec(summary="cli tool"),
+    )
+
+    assert repaired.files["src/main.py"] == "print('fixed')"
+    assert repaired.files["keep.py"] == "print('keep')\n"
+    assert "extra.py" not in repaired.files
+
+
+@pytest.mark.asyncio
+async def test_apply_repair_preserves_build_metadata_when_targets_are_specified(tmp_path):
+    codebase = Codebase(
+        root_path=tmp_path,
+        language="python",
+        files={"main.py": "print('old')\n"},
+        build_script="python main.py",
+        executable_path=tmp_path / "main.py",
+    )
+
+    repaired = await RepairLoop(ExtraMetadataRepairLLM()).apply_repair(
+        RepairStrategy(
+            strategy_type="fix_algorithm",
+            description="repair only main",
+            target_files=["main.py"],
+        ),
+        codebase,
+        ProgramSpec(summary="cli tool"),
+    )
+
+    assert repaired.files["main.py"] == "print('fixed')"
+    assert repaired.build_script == "python main.py"
+    assert repaired.executable_path == tmp_path / "main.py"

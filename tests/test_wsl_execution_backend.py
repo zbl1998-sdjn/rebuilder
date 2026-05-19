@@ -39,14 +39,30 @@ async def test_wsl_executor_runs_python_with_linux_paths_and_env(tmp_path):
     assert result.stdout == "ok\n"
     assert runner.input_bytes == b"input"
     assert runner.timeout == 7
-    assert runner.command[:3] == ["wsl", "bash", "-lc"]
-    shell_script = runner.command[3]
-    assert "python3" in shell_script
-    assert "timeout --kill-after=1s 7s" in shell_script
-    assert "/mnt/" in shell_script
-    assert "DATA_DIR=/mnt/" in shell_script
-    assert "PLAIN=x" in shell_script
-    assert "--flag value" in shell_script
+    assert runner.command[:4] == ["wsl", "--cd", runner.command[2], "--exec"]
+    assert "/mnt/" in runner.command[2]
+    assert runner.command[4:7] == ["timeout", "--kill-after=1s", "7s"]
+    assert "python3" in runner.command
+    assert any(token.startswith("DATA_DIR=/mnt/") for token in runner.command)
+    assert "PLAIN=x" in runner.command
+    assert runner.command[-2:] == ["--flag", "value"]
+
+
+@pytest.mark.asyncio
+async def test_wsl_executor_preserves_shell_sensitive_argument_literals(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+    runner = CaptureRunner()
+
+    await WSLExecutorBackend(runner=runner, timeout=7).run(
+        script,
+        TestCase(name="case", args=[r"(\w+) (\w+)", "$2 $1", "$$bar"]),
+    )
+
+    assert runner.command[:4] == ["wsl", "--cd", runner.command[2], "--exec"]
+    assert runner.command[-3:] == [r"(\w+) (\w+)", "$2 $1", "$$bar"]
+    assert "bash" not in runner.command
+    assert "-lc" not in runner.command
 
 
 @pytest.mark.asyncio
@@ -58,3 +74,20 @@ async def test_wsl_executor_closes_empty_stdin(tmp_path):
     await WSLExecutorBackend(runner=runner).run(script, TestCase(name="empty-stdin"))
 
     assert runner.input_bytes == b""
+
+
+@pytest.mark.asyncio
+async def test_wsl_executor_rejects_input_file_path_escape_before_running(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("print('should-not-run')\n", encoding="utf-8")
+    runner = CaptureRunner()
+
+    with pytest.raises(ValueError, match="unsafe input file path"):
+        await WSLExecutorBackend(runner=runner).run_in_workdir(
+            script,
+            TestCase(name="escape", input_files={"../escape.txt": b"x"}),
+            tmp_path / "work",
+        )
+
+    assert runner.command is None
+    assert not (tmp_path / "escape.txt").exists()

@@ -18,6 +18,35 @@ class CodebaseIntegrityIssue:
     message: str
 
 
+def python_syntax_error_message(path: str, exc: SyntaxError, content: str) -> str:
+    lineno = exc.lineno or 1
+    offset = exc.offset or 1
+    message = f"Python file {path!r} has syntax error at {lineno}:{offset}: {exc.msg}"
+    if _looks_like_truncated_python_syntax_error(exc, content):
+        message += (
+            ". This is likely truncated generated output; retry with "
+            "compact complete source files and close all open blocks."
+        )
+    return message
+
+
+def _looks_like_truncated_python_syntax_error(exc: SyntaxError, content: str) -> bool:
+    lowered = (exc.msg or "").lower()
+    if "was never closed" in lowered:
+        return True
+    if "unexpected eof" in lowered:
+        return True
+
+    lines = content.splitlines() or [""]
+    lineno = exc.lineno or len(lines)
+    near_end = lineno >= max(1, len(lines) - 1)
+    return near_end and (
+        "unterminated triple-quoted string literal" in lowered
+        or "unterminated string literal" in lowered
+        or "eof while scanning" in lowered
+    )
+
+
 class CodebaseIntegrityChecker:
     """Find structural problems that would prevent a candidate from running."""
 
@@ -43,14 +72,12 @@ class CodebaseIntegrityChecker:
             try:
                 ast.parse(content, filename=path)
             except SyntaxError as exc:
-                lineno = exc.lineno or 1
-                offset = exc.offset or 1
                 issues.append(
                     CodebaseIntegrityIssue(
                         kind="syntax_error",
                         path=path,
                         module=path,
-                        message=f"Python file {path!r} has syntax error at {lineno}:{offset}: {exc.msg}",
+                        message=python_syntax_error_message(path, exc, content),
                     )
                 )
         return issues

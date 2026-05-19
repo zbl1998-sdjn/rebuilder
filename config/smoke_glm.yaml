@@ -20,6 +20,15 @@ llm:
     temperature: 0.3
     max_tokens: 8192
     timeout: 120
+  local_openai:
+    api_key: ""
+    base_url: "http://127.0.0.1:11434/v1"
+    model: "qwen2.5:7b"
+    temperature: 0.2
+    max_tokens: 8192
+    timeout: 300
+    max_retries: 2
+    retry_delay: 1
 
 probe:
   max_probe_iterations: 1
@@ -39,6 +48,7 @@ differential:
   strict_exit_code: true
   compare_stderr: true
   compare_file_outputs: true
+  max_concurrency: 8
 
 implementation:
   static_output_assets: true

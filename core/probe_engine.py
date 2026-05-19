@@ -4,34 +4,38 @@ Probe Engine: Systematically explore the behavior of a black-box executable.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Set
 
 from core.coverage import BehavioralCoverageAnalyzer
 from core.data_models import (
     BehaviorSample,
     CLISurface,
     FlagSpec,
-    ArgSpec,
     TestCase,
     TestResult,
 )
+from core.execution.files import UnsafeInputFilePathError
 from core.evidence import EvidenceRecorder, EvidenceStore
 from core.evidence.models import test_case_fingerprint
-from core.llm_output import extract_json_value
+from core.llm_output import parse_llm_test_cases
+from core.profiling import infer_task_profile
+from core.probing.adaptive import AdaptiveProbePlanner
+from core.probing.axes import description_axis_tags
 from core.probing.planner import ProbePlanner
 from core.probing.file_io import FileIOProbePlanner
 from core.probing.shell_init import ShellInitProbePlanner
 from core.probing.stateful import StatefulProbePlanner, StatefulProbeRunner
-from llm_clients.base import BaseLLMClient, Message
+from llm_clients.base import BaseLLMClient
 from llm_clients.options import configured_max_tokens
 from utils.executable import SandboxExecutor
 
 
 class ProbeEngine:
     """Structured black-box exploration of an executable."""
+    
+    DOCUMENTATION_PROMPT_MAX_CHARS = 3000
     
     SYSTEM_PROMPT = """You are a security researcher performing structured black-box analysis of an executable.
 Your goal is to generate diverse test inputs to understand the program's behavior.
@@ -55,6 +59,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         timeout: float = 10.0,
         evidence_store: EvidenceStore | None = None,
         executor_backend=None,
+        enable_adaptive_probes: bool = True,
     ):
         self.executable = executable if executor_backend else Path(executable)
         self.documentation = documentation
@@ -69,6 +74,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
             if evidence_store
             else None
         )
+        self.enable_adaptive_probes = enable_adaptive_probes
         self.corpus: List[BehaviorSample] = []
         self.cli_surface = CLISurface()
         self.seen_tests: Set[str] = set()
@@ -96,6 +102,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
 
         # Phase 4: Deterministic supplemental probes for official-gated runs.
         await self._probe_minimum_corpus()
+        await self._probe_adaptive_task_profile()
         await self._probe_until_coverage_target()
           
         return self.corpus
@@ -146,6 +153,27 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
                     observed_result=result,
                     tags=tags,
                 )
+            )
+
+    async def _probe_adaptive_task_profile(self):
+        """Run deterministic probes selected from the inferred task profile."""
+        if not self.enable_adaptive_probes:
+            return
+        profile = infer_task_profile(
+            documentation=self.documentation,
+            cli_surface=self.cli_surface,
+            corpus=self.corpus,
+        )
+        primary_domain = profile.get("primary_domain", "generic_cli")
+        for tc in AdaptiveProbePlanner().plan(
+            profile,
+            documentation=self.documentation,
+            cli_surface=self.cli_surface,
+            corpus=self.corpus,
+        ):
+            await self._run_deterministic_probe(
+                tc,
+                base_tags=["adaptive_profile", f"profile_domain:{primary_domain}"],
             )
     
     async def _probe_cli_surface(self):
@@ -223,11 +251,12 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         """Use LLM to generate the next batch of test cases based on observed behavior so far."""
         # Build a summary of what we've learned so far
         observation_summary = self._build_observation_summary()
+        documentation = self._format_documentation_for_prompt(self.documentation)
         
         messages = [
             self.llm.system_prompt(self.SYSTEM_PROMPT),
             self.llm.user_prompt(
-                f"Program documentation:\n{self.documentation}\n\n"
+                f"Program documentation:\n{documentation}\n\n"
                 f"CLI surface discovered so far:\n{self.cli_surface.model_dump_json(indent=2)}\n\n"
                 f"Observations so far ({len(self.corpus)} samples):\n{observation_summary}\n\n"
                 f"Iteration {iteration + 1}/{self.max_iterations}. "
@@ -242,35 +271,44 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
             max_tokens=min(configured_max_tokens(self.llm, 4096), 4096),
         )
         return self._parse_test_cases(resp.content)
+
+    def _format_documentation_for_prompt(self, documentation: str) -> str:
+        text = documentation.strip()
+        return self._truncate_middle(
+            text,
+            self.DOCUMENTATION_PROMPT_MAX_CHARS,
+            marker="\n...[documentation truncated due to prompt budget]...\n",
+        )
+
+    def _truncate_middle(
+        self,
+        text: str,
+        limit: int,
+        marker: str = "\n...[truncated due to prompt budget]...\n",
+    ) -> str:
+        if limit <= 0:
+            return ""
+        if len(text) <= limit:
+            return text
+        if limit <= len(marker):
+            return text[:limit]
+        remaining = limit - len(marker)
+        head_len = max(remaining * 2 // 3, 0)
+        tail_len = remaining - head_len
+        return f"{text[:head_len]}{marker}{text[-tail_len:] if tail_len else ''}"
     
     def _parse_test_cases(self, text: str) -> List[TestCase]:
-        """Parse LLM output into TestCase objects."""
-        try:
-            data = extract_json_value(text.strip())
-            if isinstance(data, dict) and "test_cases" in data:
-                data = data["test_cases"]
-            if not isinstance(data, list):
-                return []
-
-            cases = []
-            for item in data:
-                if not isinstance(item, dict):
-                    continue
-                tc = TestCase(
-                    name=item.get("name", "unnamed"),
-                    args=self._sanitize_probe_args(item.get("args", [])),
-                    stdin=item.get("stdin", ""),
-                    input_files=item.get("input_files", {}),
-                    description=item.get("description", ""),
-                )
-                # Deduplicate by hash
-                fingerprint = test_case_fingerprint(tc)
-                if fingerprint not in self.seen_tests:
-                    self.seen_tests.add(fingerprint)
-                    cases.append(tc)
-            return cases
-        except ValueError:
-            return []
+        """Parse LLM output into TestCase objects, sanitize probe args, and dedup."""
+        parsed = parse_llm_test_cases(text)
+        cases: List[TestCase] = []
+        for tc in parsed:
+            tc.args = self._sanitize_probe_args(tc.args)
+            fingerprint = test_case_fingerprint(tc)
+            if fingerprint in self.seen_tests:
+                continue
+            self.seen_tests.add(fingerprint)
+            cases.append(tc)
+        return cases
 
     def _sanitize_probe_args(self, args: list[str]) -> list[str]:
         sanitized = [str(arg) for arg in args]
@@ -344,14 +382,19 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
             tags.append("error_mode")
         if result.timeout_triggered:
             tags.append("timeout")
+        if "unsafe input file path" in result.stderr:
+            tags.append("invalid_input_file")
         self.corpus.append(BehaviorSample(test_case=tc, observed_result=result, tags=tags))
 
     async def _execute_test(self, tc: TestCase, tags: List[str]) -> TestResult:
         """Run a test case and optionally persist its reference-executable evidence."""
-        if self.evidence_recorder:
-            result, _record = await self.evidence_recorder.run_and_record(tc, tags=tags)
-            return result
-        return await self.executor.run(tc)
+        try:
+            if self.evidence_recorder:
+                result, _record = await self.evidence_recorder.run_and_record(tc, tags=tags)
+                return result
+            return await self.executor.run(tc)
+        except UnsafeInputFilePathError as exc:
+            return TestResult(stderr=str(exc), exit_code=2)
     
     async def _probe_edge_cases(self):
         """Systematically probe known edge case categories."""
@@ -379,8 +422,11 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         if fingerprint in self.seen_tests:
             return False
         self.seen_tests.add(fingerprint)
-        result = await self._execute_test(tc, tags=base_tags)
         tags = list(base_tags)
+        for axis_tag in description_axis_tags(tc.description):
+            if axis_tag not in tags:
+                tags.append(axis_tag)
+        result = await self._execute_test(tc, tags=tags)
         if result.exit_code != 0:
             tags.append("error_mode")
         if result.timeout_triggered:

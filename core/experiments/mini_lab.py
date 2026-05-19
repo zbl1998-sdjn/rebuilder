@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,22 +77,60 @@ class MiniLabResultCollector:
 
     def _read_row(self, run_root: Path, instance_id: str) -> MiniLabRow:
         result_path = run_root / instance_id / "generated" / instance_id / "result.json"
-        payload = json.loads(result_path.read_text(encoding="utf-8"))
+        payload = self._load_payload(result_path, instance_id)
         implementation_metadata = payload.get("implementation_metadata", {}) or {}
+        if not isinstance(implementation_metadata, dict):
+            implementation_metadata = {}
         return MiniLabRow(
             task_id=payload.get("task_id", instance_id),
             status=payload.get("status", "unknown"),
-            resolved_rate=float(payload.get("resolved_rate", 0.0) or 0.0),
-            holdout_resolved_rate=payload.get("holdout_resolved_rate"),
-            probes_conducted=int(payload.get("probes_conducted", 0) or 0),
-            iterations_used=int(payload.get("iterations_used", 0) or 0),
-            exploration_cases=int(payload.get("exploration_cases", 0) or 0),
-            holdout_cases=int(payload.get("holdout_cases", 0) or 0),
+            resolved_rate=self._as_float(payload.get("resolved_rate")),
+            holdout_resolved_rate=self._as_optional_float(payload.get("holdout_resolved_rate")),
+            probes_conducted=self._as_int(payload.get("probes_conducted")),
+            iterations_used=self._as_int(payload.get("iterations_used")),
+            exploration_cases=self._as_int(payload.get("exploration_cases")),
+            holdout_cases=self._as_int(payload.get("holdout_cases")),
             files_generated=self._files_generated(run_root, instance_id),
             static_output_assets_enabled=implementation_metadata.get("static_output_assets_enabled"),
             contract_asset_status=implementation_metadata.get("contract_asset_status"),
             result_path=result_path,
         )
+
+    def _load_payload(self, result_path: Path, instance_id: str) -> dict[str, object]:
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"task_id": instance_id, "status": "invalid_result"}
+        if not isinstance(payload, dict):
+            return {"task_id": instance_id, "status": "invalid_result"}
+        return payload
+
+    def _as_float(self, value: object) -> float:
+        try:
+            parsed = float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else 0.0
+
+    def _as_optional_float(self, value: object) -> float | None:
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else None
+
+    def _as_int(self, value: object) -> int:
+        if isinstance(value, bool):
+            return 0
+        try:
+            parsed = float(value or 0)
+        except (TypeError, ValueError):
+            return 0
+        if not math.isfinite(parsed) or parsed < 0 or not parsed.is_integer():
+            return 0
+        return int(parsed)
 
     def _files_generated(self, run_root: Path, instance_id: str) -> int | None:
         generated = run_root / instance_id / "generated" / instance_id

@@ -11,8 +11,10 @@ from typing import Dict, Any
 import yaml
 
 from .base import BaseLLMClient
+from .file_bridge_client import FileBridgeClient
 from .glm_client import GLMClient
 from .kimi_client import KimiClient
+from .local_openai_client import LocalOpenAIClient
 
 
 def load_config(config_path: str = "config/settings.yaml") -> Dict[str, Any]:
@@ -83,6 +85,31 @@ def create_llm_client(config: Dict[str, Any] | str | None = None) -> BaseLLMClie
             temperature=cfg.get("temperature", 0.3),
             max_tokens=cfg.get("max_tokens", 8192),
             timeout=cfg.get("timeout", 120),
+        )
+    elif provider == "local_openai":
+        cfg = llm_cfg["local_openai"]
+        return LocalOpenAIClient(
+            api_key=cfg.get("api_key", ""),
+            base_url=cfg["base_url"],
+            model=cfg["model"],
+            temperature=cfg.get("temperature", 0.3),
+            max_tokens=cfg.get("max_tokens", 8192),
+            timeout=cfg.get("timeout", 120),
+            max_retries=cfg.get("max_retries", 2),
+            retry_delay=cfg.get("retry_delay", 1.0),
+        )
+    elif provider == "file_bridge":
+        cfg = llm_cfg["file_bridge"]
+        request_dir = cfg.get("request_dir", "output/file_bridge_llm")
+        return FileBridgeClient(
+            api_key=cfg.get("api_key", ""),
+            base_url=str(request_dir),
+            request_dir=request_dir,
+            model=cfg.get("model", "codex-file-bridge"),
+            temperature=cfg.get("temperature", 0.0),
+            max_tokens=cfg.get("max_tokens", 8192),
+            timeout=cfg.get("timeout", 3600),
+            poll_interval=cfg.get("poll_interval", 1.0),
         )
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")

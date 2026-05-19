@@ -31,8 +31,11 @@ class ProgramBenchSample(BaseModel):
 def parse_dockerhub_repository(repo: Dict[str, Any]) -> ProgramBenchSample:
     """Convert one DockerHub repository object into stable ProgramBench metadata."""
     docker_repository = repo["name"]
+    if not isinstance(docker_repository, str) or not docker_repository:
+        raise ValueError("DockerHub repository name must be a non-empty string.")
     instance_id = docker_repository.replace("_1776_", "__")
-    description = repo.get("description") or ""
+    raw_description = repo.get("description") or ""
+    description = raw_description if isinstance(raw_description, str) else ""
     source_project = _source_project_from_description(description) or _source_project_from_name(docker_repository)
     image_base = f"programbench/{docker_repository}"
     return ProgramBenchSample(
@@ -63,8 +66,16 @@ def fetch_programbench_samples(limit: int = 10) -> List[ProgramBenchSample]:
         with urlopen(request, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
-        for repo in payload.get("results", []):
-            samples.append(parse_dockerhub_repository(repo))
+        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+            raise ValueError("DockerHub response must contain a JSON list of repository results.")
+
+        for repo in payload["results"]:
+            if not isinstance(repo, dict):
+                continue
+            try:
+                samples.append(parse_dockerhub_repository(repo))
+            except (KeyError, TypeError, ValueError):
+                continue
             if len(samples) >= limit:
                 break
 

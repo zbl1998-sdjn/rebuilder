@@ -1,12 +1,22 @@
+import sys
 from types import SimpleNamespace
 
-from main import build_controller, discover_run_session, resolve_provider_api_key, resolve_task_id
+import pytest
+
+from main import build_controller, discover_run_session, parse_args, resolve_provider_api_key, resolve_task_id
 from core.execution import WSLExecutorBackend
 from core.session import RunSession
 from tests.test_probe_engine import MockLLMClient
 
 
-def args(max_repairs=None, output=None, static_output_assets="config", probe_iterations=None, min_probe_samples=None):
+def args(
+    max_repairs=None,
+    output=None,
+    static_output_assets="config",
+    probe_iterations=None,
+    min_probe_samples=None,
+    adaptive_probes="config",
+):
     return SimpleNamespace(
         max_repairs=max_repairs,
         probe_iterations=probe_iterations,
@@ -14,6 +24,7 @@ def args(max_repairs=None, output=None, static_output_assets="config", probe_ite
         output=output,
         replacement_executor=None,
         static_output_assets=static_output_assets,
+        adaptive_probes=adaptive_probes,
     )
 
 
@@ -77,6 +88,53 @@ def test_build_controller_lets_cli_override_min_probe_samples(tmp_path):
     assert controller.min_probe_samples == 50
 
 
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "--max-repairs",
+        "--probe-iterations",
+        "--min-probe-samples",
+    ],
+)
+def test_parse_args_rejects_negative_iteration_controls(monkeypatch, flag):
+    monkeypatch.setattr(sys, "argv", ["main.py", "--task", "task", flag, "-1"])
+
+    with pytest.raises(SystemExit):
+        parse_args()
+
+
+@pytest.mark.parametrize(
+    "arg_kwargs",
+    [
+        {"max_repairs": -1},
+        {"probe_iterations": -1},
+        {"min_probe_samples": -1},
+    ],
+)
+def test_build_controller_rejects_negative_direct_iteration_overrides(tmp_path, arg_kwargs):
+    config = {"probe": {}, "controller": {}}
+
+    with pytest.raises(ValueError, match="must be non-negative"):
+        build_controller(
+            MockLLMClient(),
+            config,
+            args(output=str(tmp_path / "out"), **arg_kwargs),
+        )
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"probe": {}, "controller": {"max_repair_iterations": -1}},
+        {"probe": {"max_probe_iterations": -1}, "controller": {}},
+        {"probe": {"min_samples": -1}, "controller": {}},
+    ],
+)
+def test_build_controller_rejects_negative_config_iteration_controls(tmp_path, config):
+    with pytest.raises(ValueError, match="must be non-negative"):
+        build_controller(MockLLMClient(), config, args(output=str(tmp_path / "out")))
+
+
 def test_build_controller_uses_session_generated_path_when_output_not_set(tmp_path):
     config = {"probe": {}, "controller": {}}
     session = RunSession.create(
@@ -132,6 +190,32 @@ def test_build_controller_cli_overrides_static_output_asset_toggle(tmp_path):
     assert controller.enable_static_output_assets is False
 
 
+def test_build_controller_configures_adaptive_probe_toggle(tmp_path):
+    config = {
+        "probe": {"adaptive_probes": False},
+        "controller": {},
+    }
+
+    controller = build_controller(MockLLMClient(), config, args(output=str(tmp_path / "out")))
+
+    assert controller.enable_adaptive_probes is False
+
+
+def test_build_controller_cli_overrides_adaptive_probe_toggle(tmp_path):
+    config = {
+        "probe": {"adaptive_probes": False},
+        "controller": {},
+    }
+
+    controller = build_controller(
+        MockLLMClient(),
+        config,
+        args(output=str(tmp_path / "out"), adaptive_probes="enabled"),
+    )
+
+    assert controller.enable_adaptive_probes is True
+
+
 def test_discover_run_session_from_workspace_path(tmp_path):
     session = RunSession.create(
         root_path=tmp_path / "runs",
@@ -153,6 +237,42 @@ def test_resolve_provider_api_key_accepts_config_value_when_env_missing(monkeypa
 
     assert env_var == "GLM_API_KEY"
     assert api_key == "from-config"
+
+
+def test_resolve_provider_api_key_allows_local_openai_without_key(monkeypatch):
+    monkeypatch.delenv("LOCAL_OPENAI_API_KEY", raising=False)
+    config = {"llm": {"provider": "local_openai", "local_openai": {"api_key": ""}}}
+
+    env_var, api_key = resolve_provider_api_key(config)
+
+    assert env_var == "LOCAL_OPENAI_API_KEY"
+    assert api_key == ""
+
+
+def test_resolve_provider_api_key_allows_file_bridge_without_key(monkeypatch):
+    monkeypatch.delenv("FILE_BRIDGE_API_KEY", raising=False)
+    config = {"llm": {"provider": "file_bridge", "file_bridge": {"api_key": ""}}}
+
+    env_var, api_key = resolve_provider_api_key(config)
+
+    assert env_var == "FILE_BRIDGE_API_KEY"
+    assert api_key == ""
+
+
+def test_parse_args_accepts_local_openai_provider(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["main.py", "--task", "task", "--provider", "local_openai"])
+
+    parsed = parse_args()
+
+    assert parsed.provider == "local_openai"
+
+
+def test_parse_args_accepts_file_bridge_provider(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["main.py", "--task", "task", "--provider", "file_bridge"])
+
+    parsed = parse_args()
+
+    assert parsed.provider == "file_bridge"
 
 
 def test_resolve_task_id_prefers_run_session_id(tmp_path):

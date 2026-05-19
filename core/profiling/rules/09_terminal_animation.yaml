@@ -1,0 +1,102 @@
+domain: terminal_animation
+keywords:
+- cmatrix
+- matrix
+- ncurses
+- curses
+- screensaver
+- asynchronous scroll
+- bold characters
+- rainbow
+- lambda mode
+- update delay
+- screen update
+- tty
+- initscr
+formats:
+- ansi
+- terminal
+implementation_hints:
+- Animation main loop is rarely exercised in cleanroom tests; the test surface is dominated
+  by CLI parsing, help/version text, error messages on terminal init failure, and exact
+  exit codes for documented and undocumented flags.
+- Spell every documented short flag in the getopt short option string exactly as
+  documented; missing a single letter changes both the "invalid flag" error path and
+  the help-exit behavior for that letter.
+- >
+  For ncurses-style binaries, terminal init failure stderr embeds the literal value
+  of $TERM (e.g. "Error opening terminal: unknown."). Compute it from
+  os.environ.get("TERM") or "unknown" instead of hardcoding any specific TERM value.
+- For -t tty validation, do not rely on os.strerror across platforms; copy the exact
+  error wording from cleanroom contracts (for example, /dev/tty on Linux maps to
+  "No such device or address.", not "No such file or directory.").
+- Numeric range args such as -u delay (0-10) need explicit boundary validation and
+  parse-error behavior; do not silently accept out-of-range or non-integer values.
+- Enum-like args such as -C color should preserve observed case sensitivity exactly;
+  if probes show "GREEN" is invalid then uppercase variants must reject.
+repair_hints:
+- For terminal-init failure mismatches, diff the literal TERM value embedded in stderr,
+  the trailing period and newline, and whether stdout is empty.
+- For "invalid color" or "invalid value" stderr, copy the observed leading space, comma
+  joins, and final newline byte-for-byte from cleanroom contracts.
+- For -t tty error stderr, distinguish ENOENT/ENXIO/EACCES wording by tty path and
+  errno; the same path can map to different strerror strings across Linux distros.
+- Use ncurses initialization failure as the gate for animation flags; in cleanroom
+  test environments stdout/stderr are typically piped (isatty=False) so the binary
+  exits before running the animation.
+implementation_playbook:
+- Parse all documented short options via getopt with the exact letter set, marking
+  value-taking flags (-u, -C, -t, -M) with the colon suffix.
+- Treat -h, -V as immediate-exit-0 with the exact help/version text from probes; do
+  not run further validation when these flags are present.
+- Validate numeric flags (-u) parse as int and fall within documented bounds; emit
+  the observed error wording on failure.
+- Validate enum flags (-C) against the observed valid set with observed case
+  sensitivity; emit observed "Invalid color selection" message with exact spacing
+  and newline behavior.
+- Validate -t tty argument by opening the path read-only; map known error paths to
+  literal stderr strings rather than computing via os.strerror.
+- Terminal init check should fail when TERM is in the documented broken set (unknown,
+  dumb, "") OR when stdout/stderr is not a TTY; emit stderr with the TERM value
+  literally and exit 1.
+- If none of the above fails, attempt curses.initscr() and exit 0 on success or
+  emit the same terminal-init error wording on failure.
+- Keep main.py compact (<200 lines). Do not implement the animation loop unless
+  contracts prove specific animation outputs are tested.
+repair_playbook:
+- If the "Error opening terminal" stderr mismatches between original and replacement,
+  inspect whether the TERM value is being interpolated or hardcoded; also check whether
+  the leading newline or trailing period matches the contract.
+- If "Invalid color selection" stderr mismatches, compare leading space, multi-line
+  formatting, color list joining (comma vs comma-and), and trailing newline.
+- If help text mismatches, byte-diff against the captured help_long contract; common
+  drift includes flag listing order, trailing newlines, capitalization of
+  parenthetical defaults, and indentation.
+- If version text mismatches, byte-diff against the captured version contract;
+  preserve build-date wording exactly.
+- If invalid-flag stderr mismatches, do not fall through to the help text; many
+  ncurses CLIs print usage to stdout exit 0 only for -h, not for unknown flags.
+generalization_playbook:
+- Keep unseen holdout coverage for TERM unset/unknown, invalid TERM, missing terminal
+  database entries, help/version output, invalid flags, and bounded non-interactive frames.
+- Validate environment-sensitive dispatch before rendering animation frames so error
+  behavior does not depend on ncurses availability in the host environment.
+- Treat frame generation, color mode, speed/delay, and terminal-size handling as separate
+  reusable rules rather than exact full-screen fixture replay.
+validation_playbook:
+- Smoke help/version, invalid flags, invalid color, invalid delay, TERM unset/unknown,
+  no-TTY execution, and tty-path error branches without starting a live animation loop.
+- Validate terminal-init stderr interpolation, option parsing, enum validation, and
+  numeric range checks before frame rendering.
+- Reject repairs that add unbounded curses loops, sleeps, or host-dependent strerror
+  text to paths that automated probes exercise.
+anti_patterns:
+- Do not hardcode TERM='unknown' in error messages; always use the env var value.
+- Do not rely on os.strerror() for cross-platform error message exactness; capture
+  literal strings from cleanroom probes.
+- Do not implement the actual animation loop; cleanroom eval cannot drive it and
+  doing so risks indefinite hangs.
+- Do not silently accept undocumented or out-of-range flag values that the original
+  binary rejects.
+- Do not use argparse for ncurses-style tools when observations show single-dash
+  short-option-only syntax via getopt.

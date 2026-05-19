@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-18T01:27:18.659315+00:00",
+  "instance_id": "chmln__sd.87d1ba5",
+  "model": "codex-subagent-file-bridge",
+  "config_path": "config/smoke_file_bridge_subagent_chmln.yaml",
+  "notes": "Official closed-loop aggregate baseline: 697/810 counted tests, score 86; raw eval 750/869; aggregate-only.",
+  "local": {
+    "status": "partial",
+    "resolved_rate": 0.9591836734693877,
+    "holdout_resolved_rate": 1.0,
+    "probes_conducted": 58,
+    "iterations_used": 1
+  },
+  "official": {
+    "passed_tests": 697,
+    "total_tests": 810,
+    "pass_rate": 0.8604938271604938,
+    "score": 86,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 0
+  },
+  "submission": {
+    "path": "runs\\programbench_official_eval_subagent_20260518\\subagent_chmln_20260518\\chmln__sd.87d1ba5\\submission.tar.gz",
+    "sha256": "62299bd7c24f8388a6382b4ad80cfe3cd2db5e1f1fd7d4f3a7d98195c8f8064d"
+  }
+}

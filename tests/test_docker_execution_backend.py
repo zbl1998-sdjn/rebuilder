@@ -110,6 +110,26 @@ async def test_docker_backend_passes_env_vars_and_can_reuse_workdir(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_docker_backend_rejects_input_file_path_escape_before_running(tmp_path):
+    runner = FakeDockerRunner()
+    backend = DockerExecutorBackend(runner=runner)
+    executable = DockerExecutable(
+        image="programbench/owner_1776_repo.abcdef0:task_cleanroom",
+        executable_path="/workspace/executable",
+    )
+
+    with pytest.raises(ValueError, match="unsafe input file path"):
+        await backend.run_in_workdir(
+            executable,
+            TestCase(name="escape", input_files={"../escape.txt": b"x"}),
+            tmp_path / "work",
+        )
+
+    assert runner.calls == []
+    assert not (tmp_path / "escape.txt").exists()
+
+
+@pytest.mark.asyncio
 async def test_docker_backend_closes_empty_stdin():
     runner = FakeDockerRunner()
     backend = DockerExecutorBackend(runner=runner)

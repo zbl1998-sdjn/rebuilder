@@ -1,0 +1,71 @@
+domain: find_replace
+keywords:
+- find & replace
+- find and replace
+- search and replace
+- regexp
+- regex
+- regular expression
+- substitution
+- replacement
+- replace_with
+- capture group
+- fixed-strings
+- string-literal
+- search for
+formats:
+- text
+- regex
+- file
+implementation_hints:
+- Implement the replacement engine as an explicit text transform over stdin and file inputs, preserving stdout, file-write, and no-input behavior from contracts.
+- Model regex captures, literal mode, replacement escapes, invalid patterns, and trailing newline behavior as separate branches.
+- Treat Rust regex compatibility as its own branch when the reference uses Rust-style tooling; Python re accepts constructs such as look-around that Rust regex rejects.
+repair_hints:
+- For replacement mismatches, inspect capture expansion, empty captures, dollar escaping, literal-vs-regex mode, and whether file arguments should update files or print stdout.
+- For parser mismatches, copy observed clap-style usage and error text instead of using argparse defaults when the reference is Rust/clap-like.
+implementation_playbook:
+- Treat the core command shape as FIND, REPLACE_WITH, and optional FILES; no-file mode normally transforms stdin, while file mode may rewrite files in place when observed.
+- "Use Python regex carefully but translate replacement syntax explicitly: $1, $name, ${name}, and $$ do not mean the same thing as Python re.sub replacement strings."
+- When translating dollar replacements, consume $$ as one literal dollar before considering named captures; $$bar should become literal $bar, not a group reference or process value.
+- 'Keep one replacement translator for adjacent captures and literal dollars: $1$2 joins the two captures, $$1 is literal $1, and text around captures such as "cmd: $1" must be preserved.'
+- Expand $name or ${name} only when the regex match has that named capture; preserve unknown names literally unless observations prove an error.
+- For sd/Rust regex-style tasks, reject unsupported look-around constructs like (?=, (?!, (?<=, and (?<!) instead of silently accepting Python re behavior.
+- Preserve zero-length and empty-capture semantics; avoid loops that repeatedly match the same empty span, invent extra empty matches, or drop empty capture groups.
+- Implement fixed-string mode as literal search and replacement, not as escaped regex plus regex replacement expansion.
+- Keep line endings and final newline behavior exact; do not strip stdin, file contents, or replacement text.
+- Treat preview mode as a separate output/file-side-effect contract; do not rewrite files in preview unless observations prove otherwise.
+- "Treat file operands as path contracts; sd-style references may reject '-' and missing files with `error: invalid path: <path>` and exit 1 rather than argparse or Python IOError text."
+- For Rust/clap-style CLIs, implement help, missing arguments, unknown flags, and invalid pattern diagnostics with observed channel and exit code.
+repair_playbook:
+- When stdout differs, first compare replacement expansion syntax, especially $1/$2, named captures, $$ literals, $$prefix text, backslash escapes, and empty captures.
+- If numbered captures disappear inside surrounding text, implement manual expansion from the match object instead of passing sd replacement strings to Python re.sub.
+- If invalid regex diagnostics differ, check whether the generated code used Python re semantics for Rust regex-incompatible features such as look-around.
+- If a repair changes parser or help output, re-check --help and missing-argument cases because generated argparse tracebacks can hide after stdout matches.
+- If file-input cases fail, verify whether the reference edits files in place, prints transformed text, or reports per-file errors.
+- If preview cases fail, compare stdout diff/preview text and file side effects independently; preview can pass stdout while still failing because files changed.
+- If file diagnostics differ, normalize '-' and nonexistent file operands to the observed invalid-path wording, channel, and exit code before changing transform logic.
+- For invalid regex failures, copy the observed regex-engine diagnostic wording and exit code before changing transform logic.
+generalization_playbook:
+- Keep unseen holdout coverage for regex and fixed-string mode, numbered and named captures,
+  literal dollar escaping including $$1/$$bar, stdin, one or more file paths, invalid
+  dash/missing-file operands, preview mode, no-match output, and invalid regex.
+- Validate Rust/clap-style dispatch for help, missing args, unknown flags, flags before/after
+  operands, and file errors before changing replacement semantics.
+- Implement one capture-expansion engine for $1, $name, ${name}, and $$ so new patterns
+  generalize beyond the observed replacement examples.
+validation_playbook:
+- Smoke stdin and file inputs, no-match output, fixed-string mode, numbered captures,
+  adjacent numbered captures like $1$2, named captures, unknown capture names, literal dollar
+  escaping including $$1/$$bar, empty captures, preview mode, and invalid regex.
+- Run help, missing args, unknown flags, missing value flags, flag ordering, file errors,
+  and Rust-incompatible regex constructs before accepting replacement-engine repairs.
+- Compare stdout transforms, in-place file side effects, stderr diagnostics, exit codes,
+  and final newline behavior independently.
+anti_patterns:
+- Do not pass sd-style replacement strings directly to Python re.sub without translating dollar captures and dollar escaping.
+- Do not translate $$name as a named capture, shell/process interpolation, or a numeric value; it is a literal dollar followed by text.
+- Do not treat $$ as a process id, shell interpolation, or numeric capture; $$1 and $$bar are literal dollar text.
+- Do not rely on Python re acceptance of look-ahead or look-behind when the observed reference reports Rust regex-style unsupported look-around errors.
+- Do not use argparse default usage/error formatting when observed stderr is Rust/clap-style.
+- Do not strip input or append extra newlines unless the observed contract requires it.

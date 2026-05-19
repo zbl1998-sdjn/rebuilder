@@ -2,7 +2,7 @@
 
 # LLM Provider Settings
 llm:
-  # Choose provider: "glm" or "kimi"
+  # Choose provider: "glm", "kimi", "local_openai", or "file_bridge"
   provider: "glm"
   
   # GLM-5.1 (Zhipu AI) Settings
@@ -27,9 +27,33 @@ llm:
     max_tokens: 8192
     timeout: 120
 
+  # Local OpenAI-compatible endpoint, e.g. Ollama/LM Studio/vLLM.
+  # Must point to a loopback host; API key is optional for local servers.
+  local_openai:
+    api_key: ""
+    base_url: "http://127.0.0.1:11434/v1"
+    model: "qwen2.5:7b"
+    temperature: 0.2
+    max_tokens: 8192
+    timeout: 300
+    max_retries: 2
+    retry_delay: 1
+
+  # Local file handoff for a human or Codex subagent responder.
+  # This performs no network calls; ReBuilder waits for response files.
+  file_bridge:
+    api_key: ""
+    request_dir: "output/file_bridge_llm"
+    model: "codex-file-bridge"
+    temperature: 0.0
+    max_tokens: 8192
+    timeout: 3600
+    poll_interval: 1
+
 # Probe Engine Settings
 probe:
   max_probe_iterations: 50
+  adaptive_probes: true
   max_input_size_bytes: 1048576  # 1MB
   timeout_per_run: 10  # seconds
   edge_case_strategies:
@@ -53,6 +77,7 @@ differential:
   strict_exit_code: true
   compare_stderr: true
   compare_file_outputs: true
+  max_concurrency: 8  # Parallel non-stateful diff comparisons; stateful plans stay serial.
 
 # Implementation
 implementation:

@@ -5,10 +5,11 @@ Repair Loop: Diagnose failures and generate repair strategies.
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import List, Optional
+import re
 
 from core.data_models import ArchitectureBlueprint, DiffReport, RepairStrategy, ProgramSpec, Codebase
+from core.implementation.entrypoint import normalize_output_path
+from core.implementation.output_parser import parse_codebase
 from core.evidence.models import test_case_json_payload
 from core.prompting.behavior_contracts import (
     behavior_contract_prompt,
@@ -18,7 +19,7 @@ from core.prompting.behavior_contracts import (
 )
 from core.llm_output import extract_json_object
 from core.repair.clustering import FailureCluster
-from llm_clients.base import BaseLLMClient, Message
+from llm_clients.base import BaseLLMClient
 from llm_clients.options import configured_max_tokens
 
 
@@ -67,7 +68,7 @@ Be specific and actionable."""
                 "exit_code_match": diff.exit_code_match,
             },
             "spec": spec_prompt_dict(spec),
-            "existing_files": list(codebase.files.keys()),
+            "existing_files": self._existing_file_names(codebase),
         }
         
         messages = [
@@ -104,7 +105,7 @@ Be specific and actionable."""
                 ],
             },
             "spec": spec_prompt_dict(spec),
-            "existing_files": list(codebase.files.keys()),
+            "existing_files": self._existing_file_names(codebase),
         }
 
         messages = [
@@ -148,9 +149,39 @@ Be specific and actionable."""
         if is_help_like:
             return 4000
         return 500 if stream == "stdout" else 300
+
+    def _existing_file_names(self, codebase: Codebase) -> list[str]:
+        return sorted(codebase.files)
+
+    def _normalize_target_files(self, value) -> list[str]:
+        if isinstance(value, str):
+            candidates = [value]
+        elif isinstance(value, list):
+            candidates = value
+        else:
+            return []
+        normalized_paths = []
+        for item in candidates:
+            if not isinstance(item, str):
+                continue
+            normalized = normalize_output_path(item)
+            if normalized:
+                normalized_paths.append(normalized)
+        return sorted(set(normalized_paths))
+
+    def _normalize_strategy_type(self, value) -> str:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "fix_algorithm"
+
+    def _normalize_strategy_text(self, value, default: str = "") -> str:
+        if isinstance(value, str):
+            return value
+        if value is None:
+            return default
+        return json.dumps(value, ensure_ascii=False)
     
     def _parse_strategy(self, text: str) -> RepairStrategy:
-        import re
         text = text.strip()
         if text.startswith("```"):
             text = re.sub(r"```(?:json)?\s*", "", text).replace("```", "")
@@ -163,9 +194,9 @@ Be specific and actionable."""
             elif not isinstance(hints, str):
                 hints = json.dumps(hints, ensure_ascii=False)
             return RepairStrategy(
-                strategy_type=data.get("strategy_type", "fix_algorithm"),
-                description=data.get("description", ""),
-                target_files=data.get("target_files", []),
+                strategy_type=self._normalize_strategy_type(data.get("strategy_type")),
+                description=self._normalize_strategy_text(data.get("description")),
+                target_files=self._normalize_target_files(data.get("target_files", [])),
                 hints=hints,
             )
         except json.JSONDecodeError:
@@ -184,8 +215,9 @@ Be specific and actionable."""
         """Apply a repair strategy by regenerating affected files."""
         
         # Read current content of target files
+        target_files = self._normalize_target_files(strategy.target_files)
         file_context = {}
-        for fname in strategy.target_files:
+        for fname in target_files:
             if fname in codebase.files:
                 file_context[fname] = codebase.files[fname]
         
@@ -214,9 +246,7 @@ Be specific and actionable."""
         )
         
         # Re-parse files from response
-        from core.implementer_agent import ImplementerAgent
-        parser = ImplementerAgent(self.llm)
-        new_codebase = parser._parse_codebase(
+        new_codebase = parse_codebase(
             resp.content,
             ArchitectureBlueprint(language=codebase.language),  # type: ignore
             codebase.root_path,
@@ -224,14 +254,22 @@ Be specific and actionable."""
         
         # Merge: keep non-target files, update target files
         merged_files = dict(codebase.files)
+        allowed_updates = set(target_files)
         for fname, content in new_codebase.files.items():
+            if allowed_updates and fname not in allowed_updates:
+                continue
             merged_files[fname] = content
+
+        build_script = codebase.build_script if allowed_updates else new_codebase.build_script or codebase.build_script
+        executable_path = (
+            codebase.executable_path if allowed_updates else new_codebase.executable_path or codebase.executable_path
+        )
         
         return Codebase(
             root_path=codebase.root_path,
             language=codebase.language,
             files=merged_files,
-            build_script=new_codebase.build_script or codebase.build_script,
-            executable_path=new_codebase.executable_path or codebase.executable_path,
+            build_script=build_script,
+            executable_path=executable_path,
             generation_metadata={**codebase.generation_metadata, "repair_applied": strategy.strategy_type},
         )

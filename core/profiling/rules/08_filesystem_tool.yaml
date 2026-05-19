@@ -1,0 +1,47 @@
+domain: filesystem_tool
+keywords:
+- file
+- directory
+- path
+- stat
+- permission
+- symlink
+- mkdir
+- rename
+formats:
+- file
+- path
+implementation_hints:
+- Perform path and filesystem operations explicitly, including missing paths, directories
+  vs files, and symlink behavior when observed.
+- Keep writes idempotent where feasible and surface OS errors through observed stderr
+  and exit-code semantics.
+repair_hints:
+- For filesystem mismatches, check path normalization, current working directory assumptions,
+  file mode, and missing-path errors.
+implementation_playbook:
+- Resolve paths relative to the current working directory unless observations show
+  config/cache directories or env overrides.
+- Model file, directory, symlink, missing-path, permission, and overwrite branches
+  explicitly.
+- Keep output ordering deterministic and match observed path separator style.
+repair_playbook:
+- For filesystem failures, compare cwd, path normalization, hidden files, directory
+  traversal order, symlink handling, and OS error wording.
+generalization_playbook:
+- Keep unseen holdout coverage for files, directories, missing paths, empty directories,
+  hidden files, symlinks when safe, relative paths, and permission/error branches.
+- Validate CLI dispatch for no args, multiple paths, recursive flags, stdin/file modes,
+  and unknown flags before tuning traversal output.
+- Use structured path walking with deterministic ordering and explicit error objects so
+  new directory shapes generalize beyond one fixture tree.
+validation_playbook:
+- Smoke files, directories, missing paths, empty directories, hidden entries, relative
+  paths, overwrite behavior, and safe symlink cases in temporary workspaces.
+- Run no-arg, multiple-path, recursive, stdin/file-mode, unknown-flag, and permission
+  error branches before accepting traversal or write repairs.
+- Compare output ordering, path separator style, stderr wording, exit codes, and file
+  side effects independently of one fixture tree.
+anti_patterns:
+- Do not silently ignore filesystem errors.
+- Do not assume Windows path separators for generated Linux submissions.

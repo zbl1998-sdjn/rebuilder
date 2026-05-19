@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-12T21:34:11.807435+00:00",
+  "recorded_at": "2026-05-17T15:13:58.660814+00:00",
   "instance_id": "clog-tool__clog-cli.7066cba",
-  "model": "glm-5.1",
-  "config_path": "config/settings.yaml",
-  "notes": "Official closed-loop aggregate baseline: 236/575 counted tests, score 41; raw eval 370/778; aggregate-only.",
+  "model": "codex-file-bridge-clog-from_latest_patch4",
+  "config_path": "output/file_bridge_manual/smoke_file_bridge_clog_from_latest_patch4.yaml",
+  "notes": "No-external-LLM file_bridge official aggregate breakthrough: 257/575 counted tests, score 45; raw eval 391/778; aggregate-only. Improves prior clog-cli baseline 236/575 score 41.",
   "local": {
     "status": "failed",
-    "resolved_rate": 0.8867924528301887,
-    "holdout_resolved_rate": 0.9166666666666666,
-    "probes_conducted": 60,
-    "iterations_used": 3
+    "resolved_rate": 0.9339622641509434,
+    "holdout_resolved_rate": 0.8125,
+    "probes_conducted": 66,
+    "iterations_used": 0
   },
   "official": {
-    "passed_tests": 236,
+    "passed_tests": 257,
     "total_tests": 575,
-    "pass_rate": 0.41043478260869565,
-    "score": 41,
+    "pass_rate": 0.4469565217391304,
+    "score": 45,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_official_eval\\clog_profile_20260513\\clog-tool__clog-cli.7066cba\\submission.tar.gz",
-    "sha256": "a43371a1e52e91cd7a090a0c8cbfb363872c1d7e566d9df53d3f5715b4bcde46"
+    "path": "runs\\file_bridge_no_external_clog_20260518_from_latest_patch4_submission\\file_bridge_no_external_clog_20260518_from_latest_patch4_eval\\clog-tool__clog-cli.7066cba\\submission.tar.gz",
+    "sha256": "4e82fde49072068e592308bb812c839ef9efb91fe8c2fb2fea958d3b34284dfa"
   }
 }

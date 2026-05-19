@@ -82,6 +82,21 @@ def test_workspace_finds_executable_and_docs(tmp_path):
     assert loaded.documentation == "docs"
 
 
+def test_workspace_loads_mkd_readme_and_advanced_docs(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    executable = workspace / "executable"
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    (workspace / "README.mkd").write_text("readme docs", encoding="utf-8")
+    (workspace / "ADVANCED.mkd").write_text("advanced docs", encoding="utf-8")
+
+    loaded = CleanroomWorkspace.load(workspace)
+
+    assert "readme docs" in loaded.documentation
+    assert "advanced docs" in loaded.documentation
+    assert loaded.documentation.index("readme docs") < loaded.documentation.index("advanced docs")
+
+
 def test_workspace_rejects_evaluation_artifacts(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -109,7 +124,7 @@ def test_task_adapter_prepares_session_workspace(tmp_path):
 def test_subprocess_docker_client_retries_transient_pull_eof(monkeypatch):
     calls = []
 
-    def fake_run(command, text, capture_output, check):
+    def fake_run(command, text, capture_output, check, timeout):
         calls.append(command)
         if len(calls) < 3:
             return subprocess.CompletedProcess(
@@ -136,7 +151,7 @@ def test_subprocess_docker_client_retries_transient_pull_eof(monkeypatch):
 def test_subprocess_docker_client_does_not_retry_non_retryable_pull_error(monkeypatch):
     calls = []
 
-    def fake_run(command, text, capture_output, check):
+    def fake_run(command, text, capture_output, check, timeout):
         calls.append(command)
         return subprocess.CompletedProcess(
             command,
@@ -154,3 +169,29 @@ def test_subprocess_docker_client_does_not_retry_non_retryable_pull_error(monkey
         client.pull_image("programbench/example:task_cleanroom")
 
     assert calls == [["docker", "pull", "programbench/example:task_cleanroom"]]
+
+
+def test_subprocess_docker_client_sets_timeout_on_docker_commands(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(command, text, capture_output, check, timeout):
+        calls.append((command, timeout))
+        stdout = "container-1\n" if command[:2] == ["docker", "create"] else ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("core.programbench.adapter.subprocess.run", fake_run)
+
+    client = SubprocessDockerClient(command_timeout=12)
+    assert client.inspect_image("programbench/example:task_cleanroom")
+    client.pull_image("programbench/example:task_cleanroom")
+    assert client.create_container("programbench/example:task_cleanroom") == "container-1"
+    client.copy_from_container("container-1", "/workspace", tmp_path / "workspace")
+    client.remove_container("container-1")
+
+    assert calls == [
+        (["docker", "image", "inspect", "programbench/example:task_cleanroom"], 12),
+        (["docker", "pull", "programbench/example:task_cleanroom"], 12),
+        (["docker", "create", "--network", "none", "programbench/example:task_cleanroom"], 12),
+        (["docker", "cp", "container-1:/workspace/.", str(tmp_path / "workspace")], 12),
+        (["docker", "rm", "-f", "container-1"], 12),
+    ]

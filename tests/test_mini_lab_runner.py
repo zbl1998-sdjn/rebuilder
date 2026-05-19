@@ -74,6 +74,83 @@ def test_mini_lab_collector_summarizes_result_files(tmp_path):
     assert report.rows[0].contract_asset_status == "disabled"
 
 
+def test_mini_lab_collector_treats_malformed_aggregate_values_as_missing(tmp_path):
+    write_result(
+        tmp_path,
+        "task.bad",
+        {
+            "task_id": "task.bad",
+            "status": "success",
+            "resolved_rate": "nan",
+            "holdout_resolved_rate": "inf",
+            "iterations_used": "many",
+            "probes_conducted": "lots",
+            "exploration_cases": "some",
+            "holdout_cases": "several",
+            "implementation_metadata": ["not", "metadata"],
+        },
+    )
+
+    report = MiniLabResultCollector().collect(tmp_path, ["task.bad"])
+
+    assert report.task_count == 1
+    assert report.rows[0].task_id == "task.bad"
+    assert report.rows[0].status == "success"
+    assert report.rows[0].resolved_rate == 0.0
+    assert report.rows[0].holdout_resolved_rate is None
+    assert report.rows[0].probes_conducted == 0
+    assert report.rows[0].iterations_used == 0
+    assert report.rows[0].exploration_cases == 0
+    assert report.rows[0].holdout_cases == 0
+    assert report.rows[0].static_output_assets_enabled is None
+    assert report.rows[0].contract_asset_status is None
+
+
+def test_mini_lab_collector_treats_out_of_range_rates_and_fractional_counts_as_missing(tmp_path):
+    write_result(
+        tmp_path,
+        "task.bad",
+        {
+            "task_id": "task.bad",
+            "status": "success",
+            "resolved_rate": 1.2,
+            "holdout_resolved_rate": -0.1,
+            "iterations_used": 2.5,
+            "probes_conducted": -1,
+            "exploration_cases": 3.25,
+            "holdout_cases": -2,
+        },
+    )
+
+    report = MiniLabResultCollector().collect(tmp_path, ["task.bad"])
+
+    assert report.rows[0].resolved_rate == 0.0
+    assert report.rows[0].holdout_resolved_rate is None
+    assert report.rows[0].probes_conducted == 0
+    assert report.rows[0].iterations_used == 0
+    assert report.rows[0].exploration_cases == 0
+    assert report.rows[0].holdout_cases == 0
+
+
+@pytest.mark.parametrize("raw_payload", ["{", "[]"])
+def test_mini_lab_collector_treats_invalid_result_payload_as_missing(tmp_path, raw_payload):
+    result_path = tmp_path / "task.bad" / "generated" / "task.bad" / "result.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(raw_payload, encoding="utf-8")
+
+    report = MiniLabResultCollector().collect(tmp_path, ["task.bad"])
+
+    assert report.task_count == 1
+    assert report.rows[0].task_id == "task.bad"
+    assert report.rows[0].status == "invalid_result"
+    assert report.rows[0].resolved_rate == 0.0
+    assert report.rows[0].holdout_resolved_rate is None
+    assert report.rows[0].probes_conducted == 0
+    assert report.rows[0].iterations_used == 0
+    assert report.rows[0].exploration_cases == 0
+    assert report.rows[0].holdout_cases == 0
+
+
 def test_mini_lab_report_writer_writes_json_and_markdown(tmp_path):
     write_result(
         tmp_path,

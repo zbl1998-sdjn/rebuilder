@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-12T13:47:32.306043+00:00",
+  "recorded_at": "2026-05-17T13:40:37.037316+00:00",
   "instance_id": "tomnomnom__gron.88a6234",
-  "model": "glm-5.1",
-  "config_path": "config/settings.yaml",
-  "notes": "Official closed-loop aggregate baseline: 117/457 counted tests, score 26; raw eval 117/457; aggregate-only.",
+  "model": "codex-file-bridge-gron-patch6",
+  "config_path": "output\\file_bridge_manual\\smoke_file_bridge_gron_patch6.yaml",
+  "notes": "No-external-LLM file_bridge baseline upgrade: official counted 140/224, score 62; raw eval 148/233; aggregate-only.",
   "local": {
-    "status": "failed",
-    "resolved_rate": 0.8235294117647058,
-    "holdout_resolved_rate": 1.0,
-    "probes_conducted": 57,
-    "iterations_used": 3
+    "status": "success",
+    "resolved_rate": 1.0,
+    "holdout_resolved_rate": 0.9285714285714286,
+    "probes_conducted": 54,
+    "iterations_used": 0
   },
   "official": {
-    "passed_tests": 117,
-    "total_tests": 457,
-    "pass_rate": 0.25601750547045954,
-    "score": 26,
+    "passed_tests": 140,
+    "total_tests": 224,
+    "pass_rate": 0.625,
+    "score": 62,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
-    "warning_count": 1
+    "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_official_eval\\gron_repairnext_20260512\\tomnomnom__gron.88a6234\\submission.tar.gz",
-    "sha256": "f27e2f623c3beaf1c43c2a10a86f0867b4ffd865a65e34afc43471348a1f42e7"
+    "path": "runs\\file_bridge_no_external_gron_20260517_patch6_submission\\file_bridge_no_external_gron_20260517_patch6_eval\\tomnomnom__gron.88a6234\\submission.tar.gz",
+    "sha256": "2318c24dd877faec61eeaeb4ddf36497bad16cc0829232119d2a88e443b9ffdb"
   }
 }

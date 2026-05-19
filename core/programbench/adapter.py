@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import time
 import json
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -54,9 +55,15 @@ class SubprocessDockerClient:
     This class is intentionally command-level and contains no ProgramBench policy.
     """
 
-    def __init__(self, pull_retries: int = 3, pull_retry_delay: float = 5.0):
+    def __init__(
+        self,
+        pull_retries: int = 3,
+        pull_retry_delay: float = 5.0,
+        command_timeout: float = 60.0,
+    ):
         self.pull_retries = pull_retries
         self.pull_retry_delay = pull_retry_delay
+        self.command_timeout = command_timeout
 
     def inspect_image(self, image: str) -> bool:
         result = subprocess.run(
@@ -64,6 +71,7 @@ class SubprocessDockerClient:
             text=True,
             capture_output=True,
             check=False,
+            timeout=self.command_timeout,
         )
         return result.returncode == 0
 
@@ -77,7 +85,7 @@ class SubprocessDockerClient:
                 if not self._is_retryable_pull_error(exc) or attempt >= self.pull_retries:
                     raise
                 last_error = exc
-                time.sleep(self.pull_retry_delay)
+                time.sleep(self._pull_retry_sleep_delay(attempt))
         if last_error is not None:
             raise last_error
 
@@ -95,15 +103,28 @@ class SubprocessDockerClient:
             text=True,
             capture_output=True,
             check=False,
+            timeout=self.command_timeout,
         )
 
     def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(command, text=True, capture_output=True, check=False)
+        result = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=self.command_timeout,
+        )
         if result.returncode != 0:
             raise RuntimeError(
                 f"Command failed ({result.returncode}): {' '.join(command)}\n{result.stderr}"
             )
         return result
+
+    def _pull_retry_sleep_delay(self, attempt: int) -> float:
+        base_delay = self.pull_retry_delay * (2 ** attempt)
+        if base_delay <= 0:
+            return 0
+        return base_delay + random.uniform(0, min(base_delay * 0.2, 1.0))
 
     def _is_retryable_pull_error(self, exc: RuntimeError) -> bool:
         text = str(exc).lower()

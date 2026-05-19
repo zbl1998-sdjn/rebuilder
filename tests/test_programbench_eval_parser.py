@@ -39,6 +39,42 @@ def test_programbench_eval_parser_marks_empty_error_run():
     assert summary.error_code == "build_failed"
 
 
+def test_programbench_eval_parser_counts_malformed_result_items_as_failures():
+    summary = ProgramBenchEvalParser().from_payload(
+        {
+            "test_results": [
+                {"name": "passed", "status": "passed"},
+                "not-a-result-object",
+                None,
+                {"name": "failed", "status": "failure"},
+            ]
+        }
+    )
+
+    assert summary.total_tests == 4
+    assert summary.passed_tests == 1
+    assert summary.pass_rate == 0.25
+    assert not summary.fully_resolved
+
+
+def test_programbench_eval_parser_treats_invalid_payload_as_error_summary(tmp_path):
+    path = tmp_path / "sample.eval.json"
+    path.write_text("{", encoding="utf-8")
+
+    summary = ProgramBenchEvalParser().parse(path)
+
+    assert summary.total_tests == 0
+    assert summary.passed_tests == 0
+    assert summary.pass_rate == 0.0
+    assert summary.error_code == "invalid_eval_payload"
+
+
+def test_programbench_eval_parser_treats_malformed_warnings_as_empty():
+    summary = ProgramBenchEvalParser().from_payload({"test_results": [], "warnings": "not-a-list"})
+
+    assert summary.warnings == []
+
+
 def test_programbench_eval_parser_filters_ignored_branches_and_tests(tmp_path):
     eval_path = tmp_path / "sample.eval.json"
     eval_path.write_text(
@@ -95,3 +131,52 @@ def test_programbench_eval_parser_filters_ignored_branches_and_tests(tmp_path):
     assert summary.pass_rate == 1.0
     assert summary.score == 1.0
     assert summary.warnings == []
+
+
+def test_programbench_eval_parser_filters_malformed_result_items(tmp_path):
+    eval_path = tmp_path / "sample.eval.json"
+    eval_path.write_text(
+        json.dumps(
+            {
+                "test_results": [
+                    {"name": "kept_pass", "branch": "active", "status": "passed"},
+                    "not-a-result-object",
+                    {"name": "kept_fail", "branch": "active", "status": "failure"},
+                    {"name": "ignored_branch_case", "branch": "ignored", "status": "failure"},
+                ],
+                "test_branches": ["active", "ignored"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tests_dir = (
+        tmp_path
+        / "programbench_repo"
+        / "src"
+        / "programbench"
+        / "data"
+        / "tasks"
+        / "owner__repo.abcdef0"
+    )
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "tests.json").write_text(
+        json.dumps(
+            {
+                "branches": {
+                    "active": {"ignored": False, "ignored_tests": []},
+                    "ignored": {"ignored": True, "ignored_tests": []},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = ProgramBenchEvalParser().parse(
+        eval_path,
+        instance_id="owner__repo.abcdef0",
+        programbench_repo=tmp_path / "programbench_repo",
+    )
+
+    assert summary.total_tests == 2
+    assert summary.passed_tests == 1
+    assert summary.pass_rate == 0.5

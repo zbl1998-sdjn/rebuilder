@@ -1,0 +1,44 @@
+domain: terminal_ui
+keywords:
+- terminal
+- ansi
+- escape
+- color
+- tui
+- screen
+- cursor
+- matrix
+formats:
+- ansi
+- terminal
+implementation_hints:
+- Keep terminal control output deterministic under test conditions and preserve ANSI
+  sequences only when observed.
+- Avoid interactive waits unless stdin/TTY behavior is explicitly covered.
+repair_hints:
+- For terminal mismatches, compare raw escape sequences, screen dimensions, color
+  flags, and timeout behavior.
+implementation_playbook:
+- Separate frame generation from timing so tests can render deterministic terminal
+  output without interactive sleeps.
+- Gate ANSI/color/cursor sequences on observed flags and environment; preserve raw
+  escape bytes when present.
+repair_playbook:
+- For terminal failures, diff raw escaped output, color enablement, dimensions, frame
+  count, and final cursor reset.
+generalization_playbook:
+- Keep unseen holdout coverage for no-TTY, TERM variations, color on/off, dimensions,
+  help/version dispatch, and short bounded render paths.
+- Validate that automated probes terminate deterministically before comparing full frame
+  bytes so a better transcript cannot introduce an unbounded animation.
+- Separate terminal capability detection from rendering so new sizes and env values reuse
+  the same layout rules.
+validation_playbook:
+- Smoke help/version, TERM variations, no-TTY execution, color on/off flags, dimension
+  options, and a bounded render path that exits without interactive input.
+- Compare raw escaped bytes, final cursor reset, stdout/stderr channels, and timeout
+  behavior separately to catch terminal-control regressions.
+- Reject repairs that introduce sleeps, interactive waits, or unbounded loops into
+  automated probes even if a single transcript improves.
+anti_patterns:
+- Do not start unbounded animations or wait for a TTY during automated probes.

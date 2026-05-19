@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import subprocess
 import tempfile
@@ -15,6 +16,10 @@ from typing import Protocol
 from core.data_models import TestCase, TestResult
 
 from .base import ExecutorBackend
+from .files import safe_input_file_names, safe_input_file_path
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -83,7 +88,11 @@ class SubprocessDockerRunner:
                 check=False,
             )
         except (OSError, subprocess.SubprocessError):
-            pass
+            logger.debug(
+                "Failed to force-remove timed-out Docker container %s",
+                container_name,
+                exc_info=True,
+            )
 
 
 class DockerExecutorBackend(ExecutorBackend):
@@ -177,7 +186,7 @@ class DockerExecutorBackend(ExecutorBackend):
 
     def _write_input_files(self, workdir: Path, test_case: TestCase) -> None:
         for filename, content in test_case.input_files.items():
-            target = workdir / filename
+            target = safe_input_file_path(workdir, filename)
             target.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(content, str):
                 target.write_text(content, encoding="utf-8")
@@ -185,7 +194,7 @@ class DockerExecutorBackend(ExecutorBackend):
                 target.write_bytes(content)
 
     def _collect_output_files(self, workdir: Path, test_case: TestCase) -> dict[str, bytes]:
-        input_paths = {Path(name).as_posix() for name in test_case.input_files}
+        input_paths = safe_input_file_names(test_case.input_files)
         outputs: dict[str, bytes] = {}
         for path in workdir.rglob("*"):
             if not path.is_file():

@@ -14,7 +14,7 @@ from .base import BaseLLMClient, LLMResponse, Message
 
 class KimiClient(BaseLLMClient):
     """Client for Moonshot AI Kimi series models (Kimi K2.6, etc.)."""
-    
+
     def __init__(self, api_key: str, base_url: str, model: str = "kimi-k2-6", **kwargs):
         super().__init__(api_key, base_url, model, **kwargs)
         self.timeout = kwargs.get("timeout", 120)
@@ -22,7 +22,7 @@ class KimiClient(BaseLLMClient):
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-    
+
     async def chat(
         self,
         messages: List[Message],
@@ -31,7 +31,7 @@ class KimiClient(BaseLLMClient):
         **kwargs
     ) -> LLMResponse:
         url = f"{self.base_url}/chat/completions"
-        
+
         payload = {
             "model": self.model,
             "messages": [m.model_dump() for m in messages],
@@ -40,14 +40,11 @@ class KimiClient(BaseLLMClient):
             payload["temperature"] = temperature
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        
+
         payload.update(kwargs)
-        
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, headers=self.headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-        
+
+        data = await self._post_json(url, payload)
+
         choice = data["choices"][0]
         return self.finalize_response(LLMResponse(
             content=choice["message"]["content"],
@@ -55,6 +52,13 @@ class KimiClient(BaseLLMClient):
             model=data.get("model", self.model),
             finish_reason=choice.get("finish_reason", ""),
         ))
+
+    async def _post_json(self, url: str, payload: dict) -> dict:
+        async def send() -> httpx.Response:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                return await client.post(url, headers=self.headers, json=payload)
+
+        return await self._retrying_request(send)
     
     async def chat_stream(
         self,

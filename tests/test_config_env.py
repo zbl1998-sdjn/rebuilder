@@ -1,6 +1,6 @@
-import os
-
-from llm_clients.factory import load_config
+from llm_clients.factory import create_llm_client, load_config
+from llm_clients.file_bridge_client import FileBridgeClient
+from llm_clients.local_openai_client import LocalOpenAIClient
 
 
 def test_load_config_resolves_values_from_project_dotenv(tmp_path, monkeypatch):
@@ -42,6 +42,73 @@ def test_glm_config_uses_resilient_request_settings():
     assert config["llm"]["glm"]["timeout"] >= 300
     assert config["llm"]["glm"]["max_retries"] >= 5
     assert config["llm"]["glm"]["retry_delay"] >= 2
+
+
+def test_default_config_includes_loopback_local_openai_provider():
+    config = load_config("config/settings.yaml")
+
+    assert config["llm"]["local_openai"]["base_url"].startswith("http://127.0.0.1:")
+    assert config["llm"]["local_openai"]["api_key"] == ""
+
+
+def test_default_config_includes_file_bridge_provider():
+    config = load_config("config/settings.yaml")
+
+    assert config["llm"]["file_bridge"]["request_dir"] == "output/file_bridge_llm"
+    assert config["llm"]["file_bridge"]["api_key"] == ""
+
+
+def test_local_openai_smoke_config_uses_local_provider():
+    config = load_config("config/smoke_local_openai.yaml")
+
+    assert config["llm"]["provider"] == "local_openai"
+    assert config["llm"]["local_openai"]["base_url"].startswith("http://127.0.0.1:")
+
+
+def test_file_bridge_smoke_config_uses_file_bridge_provider():
+    config = load_config("config/smoke_file_bridge.yaml")
+
+    assert config["llm"]["provider"] == "file_bridge"
+    assert config["llm"]["file_bridge"]["request_dir"] == "output/file_bridge_llm"
+
+
+def test_factory_creates_local_openai_client_for_loopback_endpoint():
+    client = create_llm_client(
+        {
+            "llm": {
+                "provider": "local_openai",
+                "local_openai": {
+                    "api_key": "",
+                    "base_url": "http://127.0.0.1:11434/v1",
+                    "model": "local-model",
+                    "temperature": 0.1,
+                    "max_tokens": 256,
+                    "timeout": 10,
+                },
+            }
+        }
+    )
+
+    assert isinstance(client, LocalOpenAIClient)
+
+
+def test_factory_creates_file_bridge_client():
+    client = create_llm_client(
+        {
+            "llm": {
+                "provider": "file_bridge",
+                "file_bridge": {
+                    "api_key": "",
+                    "request_dir": "output/file_bridge_llm",
+                    "model": "codex-file-bridge",
+                    "poll_interval": 0.1,
+                    "timeout": 30,
+                },
+            }
+        }
+    )
+
+    assert isinstance(client, FileBridgeClient)
 
 
 def test_default_architect_config_constrains_to_python():

@@ -61,6 +61,21 @@ def test_corpus_split_keeps_stateful_plans_atomic():
     assert exploration_steps or holdout_steps
 
 
+def test_corpus_split_prefers_smaller_atomic_group_when_dimension_coverage_ties():
+    corpus = [
+        *[stateful_behavior("large_plan", index) for index in range(6)],
+        *[stateful_behavior("small_plan", index) for index in range(2)],
+        *[behavior(f"generic_{index}") for index in range(12)],
+    ]
+
+    split = CorpusSplitter(holdout_ratio=0.3, seed="2").split(corpus)
+    holdout_names = {sample.test_case.name for sample in split.holdout}
+
+    assert len(split.holdout) == 6
+    assert {"small_plan_0", "small_plan_1"} <= holdout_names
+    assert not any(name.startswith("large_plan") for name in holdout_names)
+
+
 def test_corpus_split_handles_binary_test_case_inputs():
     corpus = [
         BehaviorSample(
@@ -74,3 +89,95 @@ def test_corpus_split_handles_binary_test_case_inputs():
 
     assert len(split.exploration) == 1
     assert len(split.holdout) == 1
+
+
+def test_corpus_split_prefers_behavior_dimension_coverage():
+    corpus = [
+        BehaviorSample(
+            test_case=TestCase(name=f"generic_{index}"),
+            observed_result=TestResult(stdout="ok"),
+        )
+        for index in range(12)
+    ]
+    corpus.extend(
+        [
+            BehaviorSample(
+                test_case=TestCase(name="help", args=["--help"]),
+                observed_result=TestResult(stdout="usage"),
+            ),
+            BehaviorSample(
+                test_case=TestCase(name="stdin", stdin="alpha\n"),
+                observed_result=TestResult(stdout="ok"),
+            ),
+            BehaviorSample(
+                test_case=TestCase(name="file_input", args=["input.txt"], input_files={"input.txt": b"alpha"}),
+                observed_result=TestResult(stdout="ok"),
+            ),
+            BehaviorSample(
+                test_case=TestCase(name="error", args=["--bad"]),
+                observed_result=TestResult(stderr="bad flag", exit_code=2),
+                tags=["error_mode"],
+            ),
+        ]
+    )
+
+    split = CorpusSplitter(holdout_ratio=0.25, seed="fixed").split(corpus)
+
+    assert {sample.test_case.name for sample in split.holdout} == {
+        "help",
+        "stdin",
+        "file_input",
+        "error",
+    }
+
+
+def test_corpus_split_prefers_smoke_contract_axis_coverage():
+    corpus = [
+        BehaviorSample(
+            test_case=TestCase(
+                name=f"generic_stdin_{index}",
+                stdin="alpha\n",
+                description="generic stdin probe",
+            ),
+            observed_result=TestResult(stdout="ok"),
+        )
+        for index in range(12)
+    ]
+    corpus.extend(
+        [
+            BehaviorSample(
+                test_case=TestCase(
+                    name="csv_quoted_fields",
+                    stdin='name,note\nAda,"x,y"\n',
+                    description="smoke_contract:csv_table.quoted_fields",
+                ),
+                observed_result=TestResult(stdout="ok"),
+            ),
+            BehaviorSample(
+                test_case=TestCase(
+                    name="csv_explicit_stdin",
+                    args=["-"],
+                    stdin="name\nAda\n",
+                    description="smoke_contract:csv_table.explicit_stdin",
+                ),
+                observed_result=TestResult(stdout="ok"),
+            ),
+            BehaviorSample(
+                test_case=TestCase(
+                    name="csv_file_input",
+                    args=["input.csv"],
+                    input_files={"input.csv": b"name\nAda\n"},
+                    description="smoke_contract:csv_table.file_input",
+                ),
+                observed_result=TestResult(stdout="ok"),
+            ),
+        ]
+    )
+
+    split = CorpusSplitter(holdout_ratio=0.2, seed="fixed").split(corpus)
+
+    assert {sample.test_case.name for sample in split.holdout} == {
+        "csv_quoted_fields",
+        "csv_explicit_stdin",
+        "csv_file_input",
+    }

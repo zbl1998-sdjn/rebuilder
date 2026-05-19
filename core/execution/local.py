@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import re
 import sys
 import tempfile
 import time
@@ -13,6 +15,10 @@ from typing import Dict
 from core.data_models import TestCase, TestResult
 
 from .base import ExecutorBackend
+from .files import safe_input_file_names, safe_input_file_path
+
+
+logger = logging.getLogger(__name__)
 
 
 class LocalExecutorBackend(ExecutorBackend):
@@ -37,7 +43,13 @@ class LocalExecutorBackend(ExecutorBackend):
         self._write_input_files(workdir, test_case)
         cmd = self._command_for_executable(executable_path) + test_case.args
         env = self._environment_for_executable(executable_path)
-        env.update(test_case.env_vars)
+        env.update(
+            {
+                key: value
+                for key, value in test_case.env_vars.items()
+                if self._valid_env_name(key)
+            }
+        )
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -67,14 +79,14 @@ class LocalExecutorBackend(ExecutorBackend):
                 proc.kill()
                 await proc.wait()
             except Exception:
-                pass
+                logger.debug("Failed to clean up timed-out local process", exc_info=True)
             return TestResult(stdout="", stderr="", exit_code=-1, timeout_triggered=True)
         except Exception as e:
             return TestResult(stdout="", stderr=str(e), exit_code=-1)
 
     def _write_input_files(self, tmp_path: Path, test_case: TestCase) -> None:
         for filename, content in test_case.input_files.items():
-            target = tmp_path / filename
+            target = safe_input_file_path(tmp_path, filename)
             target.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(content, str):
                 target.write_text(content, encoding="utf-8")
@@ -82,7 +94,7 @@ class LocalExecutorBackend(ExecutorBackend):
                 target.write_bytes(content)
 
     def _collect_output_files(self, tmp_path: Path, test_case: TestCase) -> Dict[str, bytes]:
-        input_paths = {Path(name).as_posix() for name in test_case.input_files}
+        input_paths = safe_input_file_names(test_case.input_files)
         output_files: Dict[str, bytes] = {}
         for path in tmp_path.rglob("*"):
             if not path.is_file():
@@ -105,3 +117,6 @@ class LocalExecutorBackend(ExecutorBackend):
             env.setdefault("PYTHONIOENCODING", "utf-8")
             env.setdefault("PYTHONUTF8", "1")
         return env
+
+    def _valid_env_name(self, name: str) -> bool:
+        return re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name) is not None

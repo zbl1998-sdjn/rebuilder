@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -22,11 +23,30 @@ from rich.table import Table
 
 from core.meta_controller import MetaController
 from core.execution import DockerExecutable, DockerExecutorBackend, WSLExecutorBackend
+from core.programbench.documentation import load_documentation
 from core.session import RunSession
 from llm_clients.factory import create_llm_client, load_config
-from core.data_models import TaskResult
 
 console = Console()
+
+
+def _coerce_non_negative_int(name: str, value) -> int:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a non-negative integer") from exc
+    if not math.isfinite(parsed) or parsed < 0:
+        raise ValueError(f"{name} must be non-negative")
+    if not parsed.is_integer():
+        raise ValueError(f"{name} must be a non-negative integer")
+    return int(parsed)
+
+
+def _non_negative_int(value: str) -> int:
+    try:
+        return _coerce_non_negative_int("value", value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def print_banner():
@@ -45,12 +65,17 @@ def banner_text() -> str:
 def parse_args():
     parser = argparse.ArgumentParser(description="ReBuilder: Reconstruct programs from binaries")
     parser.add_argument("--task", required=True, help="Path to task directory containing executable and documentation")
-    parser.add_argument("--provider", choices=["glm", "kimi"], default=None, help="Override LLM provider")
+    parser.add_argument(
+        "--provider",
+        choices=["glm", "kimi", "local_openai", "file_bridge"],
+        default=None,
+        help="Override LLM provider",
+    )
     parser.add_argument("--config", default="config/settings.yaml", help="Path to config file")
     parser.add_argument("--output", default=None, help="Output directory for generated code")
-    parser.add_argument("--max-repairs", type=int, default=None, help="Maximum repair iterations")
-    parser.add_argument("--probe-iterations", type=int, default=None, help="Maximum probe planning iterations")
-    parser.add_argument("--min-probe-samples", type=int, default=None, help="Minimum behavior samples to collect")
+    parser.add_argument("--max-repairs", type=_non_negative_int, default=None, help="Maximum repair iterations")
+    parser.add_argument("--probe-iterations", type=_non_negative_int, default=None, help="Maximum probe planning iterations")
+    parser.add_argument("--min-probe-samples", type=_non_negative_int, default=None, help="Minimum behavior samples to collect")
     parser.add_argument(
         "--reference-docker-image",
         default=None,
@@ -72,6 +97,12 @@ def parse_args():
         choices=["config", "enabled", "disabled"],
         default="config",
         help="Override implementation.static_output_assets for ablation runs",
+    )
+    parser.add_argument(
+        "--adaptive-probes",
+        choices=["config", "enabled", "disabled"],
+        default="config",
+        help="Override probe.adaptive_probes for ablation runs",
     )
     return parser.parse_args()
 
@@ -108,17 +139,8 @@ def load_task(task_path: Path) -> tuple[Path, str]:
     if executable is None:
         raise FileNotFoundError(f"No executable found in {task_path}")
     
-    # Load documentation
-    doc_path = task_path / "README.md"
-    if not doc_path.exists():
-        doc_path = task_path / "doc.txt"
-    if not doc_path.exists():
-        doc_path = task_path / "documentation.txt"
-    
-    documentation = ""
-    if doc_path.exists():
-        documentation = doc_path.read_text(encoding="utf-8")
-    else:
+    documentation = load_documentation(task_path)
+    if not documentation:
         console.print("[yellow]Warning: No documentation found in task directory[/yellow]")
     
     return executable.resolve(strict=False), documentation
@@ -167,15 +189,34 @@ def build_controller(
     architect_cfg = config.get("architect", {})
     controller_cfg = config.get("controller", {})
     implementation_cfg = config.get("implementation", {})
+    differential_cfg = config.get("differential", {})
     static_output_assets = implementation_cfg.get("static_output_assets", True)
+    adaptive_probes = probe_cfg.get("adaptive_probes", True)
     if getattr(args, "static_output_assets", "config") == "enabled":
         static_output_assets = True
     elif getattr(args, "static_output_assets", "config") == "disabled":
         static_output_assets = False
-    max_repairs = (
+    if getattr(args, "adaptive_probes", "config") == "enabled":
+        adaptive_probes = True
+    elif getattr(args, "adaptive_probes", "config") == "disabled":
+        adaptive_probes = False
+    max_repairs = _coerce_non_negative_int(
+        "max_repair_iterations",
         args.max_repairs
         if args.max_repairs is not None
-        else controller_cfg.get("max_repair_iterations", 10)
+        else controller_cfg.get("max_repair_iterations", 10),
+    )
+    probe_iterations = _coerce_non_negative_int(
+        "max_probe_iterations",
+        args.probe_iterations
+        if getattr(args, "probe_iterations", None) is not None
+        else probe_cfg.get("max_probe_iterations", 30),
+    )
+    min_probe_samples = _coerce_non_negative_int(
+        "min_samples",
+        args.min_probe_samples
+        if getattr(args, "min_probe_samples", None) is not None
+        else probe_cfg.get("min_samples", 0),
     )
     output_root = (
         Path(args.output)
@@ -187,16 +228,8 @@ def build_controller(
         max_repair_iterations=max_repairs,
         min_probe_coverage=controller_cfg.get("min_probe_coverage", 0.0),
         output_root=output_root,
-        probe_iterations=(
-            args.probe_iterations
-            if getattr(args, "probe_iterations", None) is not None
-            else probe_cfg.get("max_probe_iterations", 30)
-        ),
-        min_probe_samples=(
-            args.min_probe_samples
-            if getattr(args, "min_probe_samples", None) is not None
-            else probe_cfg.get("min_samples", 0)
-        ),
+        probe_iterations=probe_iterations,
+        min_probe_samples=min_probe_samples,
         probe_timeout=probe_cfg.get("timeout_per_run", 10.0),
         internal_holdout_ratio=controller_cfg.get("internal_holdout_ratio", 0.0),
         holdout_seed=controller_cfg.get("holdout_seed", "rebuilder"),
@@ -207,18 +240,30 @@ def build_controller(
         reference_executor_backend=reference_executor_backend,
         replacement_executor_backend=build_replacement_executor_backend(config, args),
         enable_static_output_assets=static_output_assets,
+        enable_adaptive_probes=adaptive_probes,
+        differential_concurrency=differential_cfg.get("max_concurrency", 8),
     )
 
 
 def resolve_provider_api_key(config: dict) -> tuple[str, str]:
     """Return the provider's environment variable name and resolved API key."""
     provider = config["llm"]["provider"]
-    env_var = "GLM_API_KEY" if provider == "glm" else "KIMI_API_KEY"
+    env_var_by_provider = {
+        "glm": "GLM_API_KEY",
+        "kimi": "KIMI_API_KEY",
+        "local_openai": "LOCAL_OPENAI_API_KEY",
+        "file_bridge": "FILE_BRIDGE_API_KEY",
+    }
+    env_var = env_var_by_provider.get(provider, f"{provider.upper()}_API_KEY")
     provider_key = config["llm"].get(provider, {}).get("api_key", "")
     api_key = os.environ.get(env_var) or provider_key
     if isinstance(api_key, str) and api_key.startswith("${"):
         api_key = ""
     return env_var, api_key
+
+
+def provider_requires_api_key(provider: str) -> bool:
+    return provider in {"glm", "kimi"}
 
 
 def resolve_task_id(task_path: Path, run_session: RunSession | None) -> str:
@@ -237,10 +282,14 @@ async def main():
     # Check API key
     provider = config["llm"]["provider"]
     env_var, api_key = resolve_provider_api_key(config)
-    if not api_key:
+    if provider_requires_api_key(provider) and not api_key:
         console.print(f"[red]Error: {env_var} environment variable not set.[/red]")
-        console.print(f"Please set it in your environment or project .env file.")
+        console.print("Please set it in your environment or project .env file.")
         sys.exit(1)
+    if api_key:
+        config["llm"][provider]["api_key"] = api_key
+    elif provider == "local_openai":
+        config["llm"][provider]["api_key"] = ""
     
     console.print(f"Using LLM provider: [bold green]{provider}[/bold green]")
     console.print(f"Model: [bold]{config['llm'][provider]['model']}[/bold]")

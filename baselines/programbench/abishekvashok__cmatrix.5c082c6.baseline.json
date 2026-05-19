@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-12T03:32:41.072717+00:00",
+  "recorded_at": "2026-05-18T02:36:00.414316+00:00",
   "instance_id": "abishekvashok__cmatrix.5c082c6",
-  "model": "glm-5.1",
-  "config_path": "config\\settings.yaml",
-  "notes": "Improved official cmatrix aggregate baseline from manual hotfix retry: 415/508 counted tests, score 82; raw eval 674/769; aggregate-only.",
+  "model": "codex-subagent-file-bridge",
+  "config_path": "config\\smoke_file_bridge_subagent_cmatrix_solved.yaml",
+  "notes": "Official aggregate cmatrix upgrade from score 93 to 95 via cleanroom-local patch on historical adaptive_profile; post-patch replay 64/64 exploration and 16/16 holdout; no external LLM during official eval; not fully_resolved.",
   "local": {
-    "status": "failed",
-    "resolved_rate": 0.945054945054945,
-    "holdout_resolved_rate": 0.9318181818181818,
-    "probes_conducted": 221,
-    "iterations_used": 2
+    "status": "success",
+    "resolved_rate": 1.0,
+    "holdout_resolved_rate": 1.0,
+    "probes_conducted": 80,
+    "iterations_used": 0
   },
   "official": {
-    "passed_tests": 415,
+    "passed_tests": 481,
     "total_tests": 508,
-    "pass_rate": 0.8169291338582677,
-    "score": 82,
+    "pass_rate": 0.9468503937007874,
+    "score": 95,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_official_eval\\submission_hotfix_retry\\abishekvashok__cmatrix.5c082c6\\submission.tar.gz",
-    "sha256": "652f662cfdab089c4c2a144367105693f08e5149722479fb5851392942dcd82f"
+    "path": "runs\\programbench_official_eval\\cmatrix_historical_patch_20260518\\abishekvashok__cmatrix.5c082c6\\submission.tar.gz",
+    "sha256": "794767d6a6ef118827b73374c43986dde55e34a32eded75b61cfd3ec0bbb39e6"
   }
 }

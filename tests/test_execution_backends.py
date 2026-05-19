@@ -58,6 +58,62 @@ async def test_local_executor_backend_closes_empty_stdin(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_local_executor_backend_rejects_input_file_path_escape(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("print('should-not-run')\n", encoding="utf-8")
+    workdir = tmp_path / "work"
+
+    with pytest.raises(ValueError, match="unsafe input file path"):
+        await LocalExecutorBackend().run_in_workdir(
+            script,
+            TestCase(name="escape", input_files={"../escape.txt": b"x"}),
+            workdir,
+        )
+
+    assert not (tmp_path / "escape.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_local_executor_backend_writes_safe_nested_input_files(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "print(Path('nested/input.txt').read_text(encoding='utf-8'))\n",
+        encoding="utf-8",
+    )
+
+    result = await LocalExecutorBackend().run(
+        script,
+        TestCase(name="nested", input_files={"nested/input.txt": b"ok"}),
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "ok"
+
+
+@pytest.mark.asyncio
+async def test_local_executor_backend_filters_invalid_env_var_names(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text(
+        "import os\n"
+        "print(os.environ.get('GOOD_NAME', 'missing'))\n"
+        "print(os.environ.get('BAD-NAME', 'missing'))\n",
+        encoding="utf-8",
+    )
+
+    result = await LocalExecutorBackend().run(
+        script,
+        TestCase(
+            name="env",
+            env_vars={"GOOD_NAME": "kept", "BAD-NAME": "dropped"},
+        ),
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.splitlines() == ["kept", "missing"]
+
+
+@pytest.mark.asyncio
 async def test_local_executor_backend_ignores_tempdir_cleanup_errors(tmp_path, monkeypatch):
     script = tmp_path / "tool.py"
     script.write_text("print('ok')\n", encoding="utf-8")

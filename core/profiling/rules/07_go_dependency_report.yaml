@@ -1,0 +1,84 @@
+domain: go_dependency_report
+keywords:
+- go-mod-outdated
+- go.mod
+- go list
+- module
+- modules
+- dependency
+- dependencies
+- outdated
+- direct
+- indirect
+- update
+- version
+- versions
+- valid timestamps
+- markdown
+- ndjson
+formats:
+- json
+- table
+- markdown
+implementation_hints:
+- Treat Go module reports as newline-delimited JSON records that render deterministic
+  tables; preserve missing-field behavior and direct/indirect filtering.
+- Model Go flag/help/log conventions explicitly instead of using argparse defaults.
+repair_hints:
+- For Go module report mismatches, check NDJSON parsing, missing version fields, table
+  alignment, markdown mode, direct filtering, and Go-style stderr.
+- For stderr mismatches, copy observed Go flag/log output including executable path,
+  timestamps, tabs, and parser wording.
+implementation_playbook:
+- Read stdin as newline-delimited JSON objects; ignore blank lines only if observed,
+  and handle malformed records with Go encoding/json-style diagnostics.
+- Represent module rows with Path/Version/Update/Indirect/Replace/Time fields and
+  explicit defaults for missing Version or Update fields.
+- Render default output as a fixed-width ASCII table with centered headers, padded
+  cells, exact border widths, and final newline; render markdown mode separately.
+- For go-mod-outdated markdown style, keep the same fixed column widths as the default
+  table; the separator row uses the full column widths rather than shrinking to header
+  or cell text.
+- Implement -direct by filtering indirect modules, -ci by changing exit code only
+  when outdated rows are present, and -style exactly as observed.
+- 'Implement Go flag semantics manually: -help prints usage to stderr with exit 0;
+  unknown flags print ''flag provided but not defined'' plus usage; usage starts with
+  ''Usage of /workspace/executable:'' and preserves the exact flag list/order.'
+- For Go log-style errors, match the observed timestamp/layout and JSON parser wording
+  from contracts instead of using current local time or Python JSONDecodeError text.
+- For Go encoding/json literal errors, preserve wording such as "invalid character
+  'h' in literal true (expecting 'r')" instead of replacing it with unexpected EOF
+  or beginning-of-value text.
+repair_playbook:
+- For table stdout failures, diff header centering with odd/even padding, per-column
+  width, border dashes, cell padding, empty Version/Update rendering, and markdown-vs-default
+  style.
+- For markdown table failures, compare separator dash counts against the default table
+  column widths (for example module/version columns can be wider than their header
+  text) rather than recomputing markdown-minimal widths.
+- For NDJSON failures, verify one JSON object per line, missing field defaults, Update
+  object handling, Indirect boolean filtering, and malformed-line continuation behavior.
+- For -help or unknown flag failures, preserve Go flag package wording, stderr channel,
+  exit code, tab indentation, and executable path exactly.
+- For log stderr failures, copy observed date/time prefix and Go encoding/json wording;
+  do not call time.now(), leak Python parser messages, or collapse literal-name diagnostics
+  to unexpected EOF.
+generalization_playbook:
+- Keep unseen holdout coverage for NDJSON multi-record input, malformed records, literal
+  true/null inputs, help to stderr, unknown flags, direct/indirect modules, and table widths.
+- Validate Go-flag dispatch and log/error formatting before table rendering so parser
+  changes do not overfit one module list.
+- Represent module records structurally and render from computed column widths instead of
+  replaying observed dependency names or rows.
+validation_playbook:
+- Smoke help, unknown flags, malformed NDJSON, literal true/null parser errors, blank
+  input, direct/indirect filtering, markdown style, and CI exit-code branches.
+- Validate Go flag-package stderr, usage ordering, log prefix shape, and JSON literal
+  diagnostics before accepting table-rendering repairs.
+- Compare table widths, centered headers, markdown separators, missing Version/Update
+  fields, and row filtering as separate aggregate dimensions.
+anti_patterns:
+- Do not parse the whole stdin as one JSON array when observations show newline-delimited
+  JSON records.
+- Do not use argparse help/errors for Go flag-package CLIs.
+- Do not left-align table headers if observed output centers them.

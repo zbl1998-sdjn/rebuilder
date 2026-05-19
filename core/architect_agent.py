@@ -5,11 +5,12 @@ Architect Agent: Design code architecture based on synthesized specification.
 from __future__ import annotations
 
 import json
+import re
 from typing import List
 
 from core.data_models import ProgramSpec, ArchitectureBlueprint, ModuleBlueprint, InterfaceSpec
 from core.llm_output import extract_json_object
-from core.prompting.behavior_contracts import behavior_contract_prompt, spec_prompt_json
+from core.prompting.behavior_contracts import behavior_contract_prompt, spec_prompt_json, task_profile_prompt
 from llm_clients.base import BaseLLMClient, Message
 from llm_clients.options import configured_max_tokens
 from pydantic import ValidationError
@@ -58,6 +59,7 @@ Choose languages that are well-suited to the observed I/O behavior."""
             self.llm.system_prompt(self.SYSTEM_PROMPT),
             self.llm.user_prompt(
                 f"Program specification:\n{spec_prompt_json(spec)}\n\n"
+                f"{task_profile_prompt(spec, purpose='architecture')}"
                 f"{behavior_contract_prompt(spec)}"
                 f"{self._constraints_prompt()}"
                 f"Design a clean, implementable architecture. Output as JSON."
@@ -72,7 +74,6 @@ Choose languages that are well-suited to the observed I/O behavior."""
         return self._parse_blueprint(resp.content)
     
     def _parse_blueprint(self, text: str) -> ArchitectureBlueprint:
-        import re
         text = text.strip()
         if text.startswith("```"):
             text = re.sub(r"```(?:json)?\s*", "", text).replace("```", "")

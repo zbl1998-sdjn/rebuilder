@@ -8,8 +8,10 @@ from core.data_models import (
     BehaviorContract,
     ModuleBlueprint,
     ProgramSpec,
+    TaskProfile,
 )
 from core.implementer_agent import ImplementerAgent
+from core.profiling import infer_task_profile
 from core.prompting.behavior_contracts import (
     behavior_contract_prompt,
     implementation_behavior_contract_prompt,
@@ -130,6 +132,24 @@ async def test_architect_design_uses_safe_spec_prompt_for_bytes_payloads():
     assert '"__type__": "bytes"' in prompt
     assert '"base64": "AAE="' in prompt
     assert "help_long" in prompt
+
+
+@pytest.mark.asyncio
+async def test_architect_design_prompt_includes_task_strategy_profile():
+    llm = CaptureArchitectLLM()
+    spec = ProgramSpec(
+        summary="tool",
+        task_profile=TaskProfile.model_validate(
+            infer_task_profile(documentation="html selector attribute text")
+        ),
+    )
+
+    await ArchitectAgent(llm).design(spec)
+
+    prompt = llm.messages[0][1].content
+    assert "Task strategy profile" in prompt
+    assert "html_selector" in prompt
+    assert "HTMLParser" in prompt
 
 
 def test_implementer_parses_json_file_manifest(tmp_path):
@@ -522,6 +542,265 @@ async def test_implementer_retries_when_generated_python_imports_missing_modules
     assert "Keep the implementation compact" in llm.messages[1][0].content
 
 
+class RuntimeCrashImplementerLLM(BaseLLMClient):
+    def __init__(self):
+        super().__init__("fake-key", "http://fake", "mock-model")
+        self.calls = 0
+        self.messages = []
+
+    async def chat(self, messages, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+        self.messages.append(messages)
+        if self.calls == 1:
+            return LLMResponse(
+                content=json.dumps(
+                    {
+                        "files": [
+                            {
+                                "path": "main.py",
+                                "content": (
+                                    "def main(argv):\n"
+                                    "    return 0\n"
+                                    "if __name__ == '__main__':\n"
+                                    "    raise SystemExit(main())\n"
+                                ),
+                            }
+                        ]
+                    }
+                )
+            )
+        return LLMResponse(
+            content=json.dumps(
+                {
+                    "files": [
+                        {
+                            "path": "main.py",
+                            "content": (
+                                "def main():\n"
+                                "    return 0\n"
+                                "if __name__ == '__main__':\n"
+                                "    raise SystemExit(main())\n"
+                            ),
+                        }
+                    ]
+                }
+            )
+        )
+
+    async def chat_stream(self, messages, temperature=None, max_tokens=None, **kwargs):
+        yield "mock"
+
+
+class TruncatedSyntaxImplementerLLM(BaseLLMClient):
+    def __init__(self):
+        super().__init__("fake-key", "http://fake", "mock-model")
+        self.calls = 0
+        self.messages = []
+
+    async def chat(self, messages, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+        self.messages.append(messages)
+        if self.calls == 1:
+            truncated_content = (
+                "def main():\n"
+                + ("    # compact filler before truncated tail\n" * 80)
+                + "    value = open('input.csv'\n"
+                + "    # tail-truncation-marker\n"
+            )
+            return LLMResponse(
+                content=json.dumps(
+                    {
+                        "files": [
+                            {
+                                "path": "main.py",
+                                "content": truncated_content,
+                            }
+                        ]
+                    }
+                )
+            )
+        return LLMResponse(
+            content=json.dumps(
+                {
+                    "files": [
+                        {
+                            "path": "main.py",
+                            "content": (
+                                "def main():\n"
+                                "    return 0\n"
+                                "if __name__ == '__main__':\n"
+                                "    raise SystemExit(main())\n"
+                            ),
+                        }
+                    ]
+                }
+            )
+        )
+
+    async def chat_stream(self, messages, temperature=None, max_tokens=None, **kwargs):
+        yield "mock"
+
+
+@pytest.mark.asyncio
+async def test_implementer_retry_prompt_flags_likely_truncated_syntax_output(tmp_path):
+    llm = TruncatedSyntaxImplementerLLM()
+
+    codebase = await ImplementerAgent(llm).implement(
+        ProgramSpec(summary="test"),
+        ArchitectureBlueprint(language="python", entry_point="main.py"),
+        tmp_path,
+    )
+
+    assert llm.calls == 2
+    assert "def main():\n" in codebase.files["main.py"]
+    assert codebase.generation_metadata["implementation_retry"] == "integrity_issues"
+    retry_prompt = llm.messages[1][1].content
+    assert "syntax_error" in retry_prompt
+    assert "likely truncated generated output" in retry_prompt
+    assert "compact complete source files" in retry_prompt
+    assert "tail-truncation-marker" in retry_prompt
+
+
+@pytest.mark.asyncio
+async def test_implementer_retries_when_generated_entrypoint_crashes_at_runtime(tmp_path):
+    llm = RuntimeCrashImplementerLLM()
+
+    codebase = await ImplementerAgent(llm).implement(
+        ProgramSpec(summary="test"),
+        ArchitectureBlueprint(language="python", entry_point="main.py"),
+        tmp_path,
+    )
+
+    assert llm.calls == 2
+    assert "def main():\n" in codebase.files["main.py"]
+    assert codebase.generation_metadata["implementation_retry"] == "integrity_issues"
+    retry_prompt = llm.messages[1][1].content
+    assert "runtime_smoke_traceback" in retry_prompt
+    assert "TypeError" in retry_prompt
+
+
+class ContractRuntimeCrashImplementerLLM(BaseLLMClient):
+    def __init__(self):
+        super().__init__("fake-key", "http://fake", "mock-model")
+        self.calls = 0
+        self.messages = []
+
+    async def chat(self, messages, temperature=None, max_tokens=None, **kwargs):
+        self.calls += 1
+        self.messages.append(messages)
+        if self.calls == 1:
+            return LLMResponse(
+                content=json.dumps(
+                    {
+                        "files": [
+                            {
+                                "path": "main.py",
+                                "content": (
+                                    "import sys\n"
+                                    "def main():\n"
+                                    "    if len(sys.argv) > 1 and sys.argv[1] == '--bad':\n"
+                                    "        raise RuntimeError('dispatch exploded')\n"
+                                    "    return 0\n"
+                                    "if __name__ == '__main__':\n"
+                                    "    raise SystemExit(main())\n"
+                                ),
+                            }
+                        ]
+                    }
+                )
+            )
+        return LLMResponse(
+            content=json.dumps(
+                {
+                    "files": [
+                        {
+                            "path": "main.py",
+                            "content": (
+                                "def main():\n"
+                                "    return 0\n"
+                                "if __name__ == '__main__':\n"
+                                "    raise SystemExit(main())\n"
+                            ),
+                        }
+                    ]
+                }
+            )
+        )
+
+    async def chat_stream(self, messages, temperature=None, max_tokens=None, **kwargs):
+        yield "mock"
+
+
+@pytest.mark.asyncio
+async def test_implementer_retries_contract_arg_runtime_crashes(tmp_path):
+    llm = ContractRuntimeCrashImplementerLLM()
+
+    codebase = await ImplementerAgent(llm).implement(
+        ProgramSpec(
+            summary="test",
+            behavior_contracts=[
+                BehaviorContract(
+                    test_name="bad_flag_contract",
+                    args=["--bad"],
+                    stderr="bad flag\n",
+                    exit_code=2,
+                    tags=["error_mode"],
+                )
+            ],
+        ),
+        ArchitectureBlueprint(language="python", entry_point="main.py"),
+        tmp_path,
+    )
+
+    assert llm.calls == 2
+    assert "dispatch exploded" in llm.messages[1][1].content
+    assert codebase.generation_metadata["implementation_retry"] == "integrity_issues"
+
+
+@pytest.mark.asyncio
+async def test_implementer_records_runtime_smoke_input_dimension_metadata(tmp_path):
+    llm = ContractCaptureLLM()
+
+    codebase = await ImplementerAgent(llm).implement(
+        ProgramSpec(
+            summary="csv tool",
+            behavior_contracts=[
+                BehaviorContract(
+                    test_name="file_env_stdin_contract",
+                    args=["input.csv"],
+                    stdin="name\nAda\n",
+                    input_files={"input.csv": b"name\nAda\n"},
+                    env_vars={"TERM": "unknown"},
+                    stdout="Ada\n",
+                    tags=["smoke_contract:csv_table.file_input"],
+                )
+            ],
+        ),
+        ArchitectureBlueprint(language="python", entry_point="main.py"),
+        tmp_path,
+    )
+
+    metadata = codebase.generation_metadata["runtime_smoke"]
+
+    assert metadata["status"] == "passed"
+    assert metadata["case_count"] == 3
+    assert metadata["contract_case_count"] == 1
+    assert metadata["arg_case_count"] == 2
+    assert metadata["stdin_case_count"] == 1
+    assert metadata["input_file_case_count"] == 1
+    assert metadata["env_var_case_count"] == 1
+    assert metadata["input_dimensions"] == [
+        "args",
+        "default",
+        "env_vars",
+        "input_files",
+        "stdin",
+    ]
+    serialized = json.dumps(metadata, sort_keys=True)
+    assert "input.csv" not in serialized
+    assert "Ada" not in serialized
+
+
 class MissingEntrypointImplementerLLM(BaseLLMClient):
     def __init__(self):
         super().__init__("fake-key", "http://fake", "mock-model")
@@ -676,6 +955,52 @@ async def test_implementer_keeps_entrypoint_when_support_module_stage_fails(tmp_
     assert not (tmp_path / "helpers.py").exists()
 
 
+@pytest.mark.asyncio
+async def test_implementer_rejects_support_module_runtime_crash(tmp_path):
+    llm = StagedImplementerLLM(
+        second_response=json.dumps(
+            {
+                "files": [
+                    {
+                        "path": "main.py",
+                        "content": (
+                            "import helpers\n"
+                            "def main():\n"
+                            "    return helpers.run()\n"
+                            "if __name__ == '__main__':\n"
+                            "    raise SystemExit(main())\n"
+                        ),
+                    },
+                    {
+                        "path": "helpers.py",
+                        "content": "def run():\n    return missing_name\n",
+                    },
+                ]
+            }
+        )
+    )
+
+    codebase = await ImplementerAgent(llm).implement(
+        ProgramSpec(summary="test"),
+        modular_python_blueprint(),
+        tmp_path,
+    )
+
+    assert codebase.files == {
+        "main.py": (
+            "def main():\n"
+            "    print('entry')\n"
+            "    return 0\n"
+            "if __name__ == '__main__':\n"
+            "    raise SystemExit(main())\n"
+        )
+    }
+    assert codebase.generation_metadata["module_stage_status"] == "rejected_integrity"
+    assert "raised a traceback" in codebase.generation_metadata["module_stage_issues"][0]
+    assert "NameError" in codebase.generation_metadata["module_stage_issues"][0]
+    assert not (tmp_path / "helpers.py").exists()
+
+
 class StagedRetryFallbackLLM(BaseLLMClient):
     def __init__(self):
         super().__init__("fake-key", "http://fake", "mock-model")
@@ -810,6 +1135,28 @@ async def test_implementer_prompts_with_exact_behavior_contracts(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_single_pass_implementer_prompt_includes_task_strategy_profile(tmp_path):
+    llm = ContractCaptureLLM()
+    spec = ProgramSpec(
+        summary="tool",
+        task_profile=TaskProfile.model_validate(
+            infer_task_profile(documentation="go-mod-outdated module table")
+        ),
+    )
+
+    await ImplementerAgent(llm).implement(
+        spec,
+        ArchitectureBlueprint(language="javascript", entry_point="index.js"),
+        tmp_path,
+    )
+
+    prompt = llm.messages[0][1].content
+    assert "Task strategy profile" in prompt
+    assert "go_dependency_report" in prompt
+    assert "newline-delimited JSON" in prompt
+
+
+@pytest.mark.asyncio
 async def test_implementer_contract_prompt_is_compact_and_prioritized(tmp_path):
     llm = ContractCaptureLLM()
     contracts = [
@@ -873,6 +1220,23 @@ def test_behavior_contract_prompt_keeps_help_contract_tail():
     assert "# help-tail\\n" in prompt
 
 
+def test_behavior_contract_prompt_preserves_over_budget_help_tail():
+    stderr = "Usage:\n" + ("x" * 12000) + "\nExit Codes:\n  0 OK\n# final-help-tail\n"
+    spec = ProgramSpec(
+        summary="tool",
+        behavior_contracts=[
+            BehaviorContract(test_name="help_long", args=["--help"], stderr=stderr),
+        ],
+    )
+
+    prompt = behavior_contract_prompt(spec)
+
+    assert "Usage:" in prompt
+    assert "# final-help-tail\\n" in prompt
+    assert "[truncated]" in prompt
+    assert len(prompt) < 9500
+
+
 def test_behavior_contract_prompt_includes_output_file_previews():
     spec = ProgramSpec(
         summary="tool",
@@ -880,6 +1244,8 @@ def test_behavior_contract_prompt_includes_output_file_previews():
             BehaviorContract(
                 test_name="file_io_input_output_flags",
                 args=["--input", "input.txt", "--output", "out.txt"],
+                input_files={"input.txt": b"alpha\n"},
+                input_file_previews={"input.txt": "alpha\n"},
                 output_files=["out.txt"],
                 output_file_previews={"out.txt": "result: alpha\n"},
                 tags=["file_io", "side_effect"],
@@ -889,8 +1255,73 @@ def test_behavior_contract_prompt_includes_output_file_previews():
 
     prompt = behavior_contract_prompt(spec)
 
+    assert '"input_files": [' in prompt
+    assert '"input.txt": "alpha\\n"' in prompt
     assert '"output_files": [' in prompt
     assert '"out.txt": "result: alpha\\n"' in prompt
+
+
+def test_behavior_contract_prompt_includes_safe_env_vars():
+    spec = ProgramSpec(
+        summary="terminal tool",
+        behavior_contracts=[
+            BehaviorContract(
+                test_name="terminal_unknown",
+                args=["--help"],
+                env_vars={"TERM": "unknown", "COLUMNS": "40"},
+                stdout="usage\n",
+                tags=["terminal_ui"],
+            )
+        ],
+    )
+
+    prompt = behavior_contract_prompt(spec)
+
+    assert '"env_vars": {' in prompt
+    assert '"TERM": "unknown"' in prompt
+    assert '"COLUMNS": "40"' in prompt
+
+
+def test_network_ping_contract_prompt_keeps_representative_loopback_parse_and_special_cases():
+    generic_contracts = [
+        BehaviorContract(test_name=f"generic_{index}", args=[str(index)], stdout="ok\n")
+        for index in range(12)
+    ]
+    spec = ProgramSpec(
+        summary="ping tool",
+        task_profile=TaskProfile(primary_domain="network_ping", domains=["network_ping"]),
+        behavior_contracts=generic_contracts
+        + [
+            BehaviorContract(
+                test_name="adaptive_network_ping_loopback_ipv4",
+                args=["-c", "1", "127.0.0.1"],
+                stdout="PING 127.0.0.1\nseq=0 ttl=64 time=100µs\n",
+                tags=["adaptive_profile", "profile_domain:network_ping"],
+            ),
+            BehaviorContract(
+                test_name="adaptive_network_ping_count_parse_error",
+                args=["-c", "abc", "localhost"],
+                stderr='invalid value "abc" for flag -c, --count\n[ ERROR ] parse error\n',
+                exit_code=1,
+                tags=["adaptive_profile", "profile_domain:network_ping", "error_mode"],
+            ),
+            BehaviorContract(
+                test_name="adaptive_network_ping_special_address_error",
+                args=["-c", "1", "224.0.0.1"],
+                stdout="0 packets transmitted => 0 received (100% loss)\n",
+                stderr="write: network is unreachable\n",
+                exit_code=2,
+                tags=["adaptive_profile", "profile_domain:network_ping", "error_mode"],
+            ),
+        ],
+    )
+
+    prompt = behavior_contract_prompt(spec)
+
+    assert "adaptive_network_ping_loopback_ipv4" in prompt
+    assert "adaptive_network_ping_count_parse_error" in prompt
+    assert "adaptive_network_ping_special_address_error" in prompt
+    assert "generic_11" not in prompt
 
 
 def test_spec_prompt_json_is_bytes_safe_and_excludes_behavior_contracts():
@@ -907,6 +1338,34 @@ def test_spec_prompt_json_is_bytes_safe_and_excludes_behavior_contracts():
     assert '"__type__": "bytes"' in prompt
     assert '"base64": "AAE="' in prompt
     assert "behavior_contracts" not in prompt
+
+
+def test_spec_prompt_json_compacts_large_supporting_fields():
+    spec = ProgramSpec(
+        summary="summary-start\n" + ("s" * 3000) + "\nsummary-tail",
+        raw_observations="obs-start\n" + ("x" * 12000) + "\nobs-tail",
+        edge_cases=[f"case-{index}-" + ("e" * 1000) for index in range(30)],
+        complexity_hints={
+            "long_note": "hint-start\n" + ("h" * 6000) + "\nhint-tail",
+            **{f"key_{index}": index for index in range(30)},
+        },
+        behavior_contracts=[
+            BehaviorContract(test_name="help_long", args=["--help"], stdout="usage\n")
+        ],
+    )
+
+    prompt = spec_prompt_json(spec)
+
+    assert "obs-start" in prompt
+    assert "obs-tail" in prompt
+    assert "hint-start" in prompt
+    assert "hint-tail" in prompt
+    assert "summary-tail" in prompt
+    assert "truncated for spec prompt" in prompt
+    assert "__truncated__" in prompt
+    assert "__truncated_keys__" in prompt
+    assert "behavior_contracts" not in prompt
+    assert len(prompt) < 9000
 
 
 def test_implementation_contract_prompt_summarizes_materialized_shell_init_outputs():

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import shlex
 import subprocess
 import tempfile
 import time
@@ -14,6 +13,7 @@ from typing import Protocol
 from core.data_models import TestCase, TestResult
 
 from .base import ExecutorBackend
+from .files import safe_input_file_names, safe_input_file_path
 
 
 class WSLRunner(Protocol):
@@ -102,8 +102,7 @@ class WSLExecutorBackend(ExecutorBackend):
             f"{timeout_seconds}s",
             *tokens,
         ]
-        shell_script = f"cd {shlex.quote(workdir_wsl)} && {shlex.join(timed_tokens)}"
-        return ["wsl", "bash", "-lc", shell_script]
+        return ["wsl", "--cd", workdir_wsl, "--exec", *timed_tokens]
 
     def _command_tokens(
         self,
@@ -143,7 +142,7 @@ class WSLExecutorBackend(ExecutorBackend):
 
     def _write_input_files(self, workdir: Path, test_case: TestCase) -> None:
         for filename, content in test_case.input_files.items():
-            target = workdir / filename
+            target = safe_input_file_path(workdir, filename)
             target.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(content, str):
                 target.write_text(content, encoding="utf-8")
@@ -151,7 +150,7 @@ class WSLExecutorBackend(ExecutorBackend):
                 target.write_bytes(content)
 
     def _collect_output_files(self, workdir: Path, test_case: TestCase) -> dict[str, bytes]:
-        input_paths = {Path(name).as_posix() for name in test_case.input_files}
+        input_paths = safe_input_file_names(test_case.input_files)
         outputs: dict[str, bytes] = {}
         for path in workdir.rglob("*"):
             if not path.is_file():

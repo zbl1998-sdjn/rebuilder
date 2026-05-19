@@ -1,0 +1,66 @@
+domain: archive_compression
+keywords:
+- zip
+- tar
+- gzip
+- archive
+- compress
+- password
+- encrypted
+- crc
+formats:
+- binary
+- archive
+implementation_hints:
+- Use standard archive libraries where possible and preserve binary-safe file handling.
+- Treat passwords, missing files, and corrupt archives as explicit error branches
+  with observed channels and exit codes.
+repair_hints:
+- For archive mismatches, check binary mode, password handling, member path normalization,
+  and corrupt-file diagnostics.
+implementation_playbook:
+- Open archives in binary mode and map CLI flags to standard-library archive operations
+  before custom parsing.
+- Preserve member path normalization, directory entries, passwords, corrupt-file errors,
+  and output ordering from contracts.
+- For password-finder CLIs, keep dictionary search, generated charset search, charset-file
+  search, starting-password offsets, file-number selection, and worker-count validation
+  as separate branches even when archive parsing fails early.
+- For Rust/clap-style archive CLIs, implement required-argument validation manually
+  so missing-argument stderr includes every required flag in the Usage line, not only
+  the missing flag.
+- For zip-password-finder-like flags, preserve exact long flag names such as --inputFile,
+  --passwordDictionary, --charsetFile, --minPasswordLen, and --maxPasswordLen.
+- Preserve clap-style phrasing for missing arguments, value placeholders, blank lines,
+  and the final "For more information, try '--help'." hint when observed.
+repair_playbook:
+- For archive failures, compare binary/text mode, path separators, member ordering,
+  password branch, and corrupt-input diagnostics.
+- For missing required-argument failures, diff the complete clap-style Usage line,
+  required flag order, value placeholder casing, blank lines, and final help hint.
+- If other password-generation flags are present while --inputFile is missing, the Usage
+  line may still include those provided flags; do not collapse Usage to only the missing
+  required flag.
+- If argparse-style usage appears in stderr for a Rust/clap-like tool, replace it
+  with the observed clap wording rather than tweaking argparse configuration.
+- For password-search failures, compare dictionary file reading, charset-file parsing,
+  min/max password length bounds, starting-password resume behavior, and selected archive
+  member index before changing the cracking loop.
+generalization_playbook:
+- Keep unseen holdout coverage for help/usage, missing required flags, missing archive,
+  dictionary passwords, charset ranges, min/max length bounds, starting-password resume,
+  and archive member selection.
+- Validate dispatch and clap-style diagnostics before running archive work so parser
+  regressions cannot be hidden by a successful password search transcript.
+- Use small generated archives and bounded search loops for smoke coverage instead of
+  fitting exact output to one archive/password pair.
+validation_playbook:
+- Smoke help, missing required flags, missing archive path, corrupt archive, dictionary
+  search, charset search, min/max bounds, and starting-password resume with tiny inputs.
+- Assert parser diagnostics run before archive work and match observed channels, usage
+  ordering, placeholders, blank lines, and exit codes.
+- Keep password search loops bounded and verify archive member selection and binary-safe
+  file handling separately from rendered progress text.
+anti_patterns:
+- Do not decode archive payloads as UTF-8 unless the observed behavior is text-only.
+- Do not use argparse's default usage/error formatting when observed stderr is Rust/clap-style.

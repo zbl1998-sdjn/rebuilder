@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, List
+
+from core.data_models import TestCase
 
 
 def extract_json_value(text: str) -> Any:
@@ -34,3 +36,36 @@ def extract_json_object(text: str) -> dict[str, Any]:
         if isinstance(value, dict):
             return value
     raise json.JSONDecodeError("No JSON object found", text, 0)
+
+
+def parse_llm_test_cases(text: str) -> List[TestCase]:
+    """Parse an LLM response into TestCase objects.
+
+    Accepts either a top-level JSON array of cases or an object with a
+    ``test_cases`` field. Unknown shapes return an empty list. Callers are
+    responsible for any domain-specific sanitization or deduplication.
+    """
+    try:
+        data = extract_json_value(text.strip())
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    if isinstance(data, dict) and "test_cases" in data:
+        data = data["test_cases"]
+    if not isinstance(data, list):
+        return []
+
+    cases: List[TestCase] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        cases.append(
+            TestCase(
+                name=item.get("name", "unnamed"),
+                args=list(item.get("args", []) or []),
+                stdin=item.get("stdin", "") or "",
+                input_files=item.get("input_files", {}) or {},
+                description=item.get("description", "") or "",
+            )
+        )
+    return cases

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -26,6 +26,16 @@ class TestResult(BaseModel):
     output_files: Dict[str, bytes] = Field(default_factory=dict)
     execution_time_ms: float = 0.0
     timeout_triggered: bool = False
+
+    @property
+    def executor_error(self) -> bool:
+        """True when the runner failed before observing target-program behavior."""
+        return (
+            self.exit_code == -1
+            and not self.timeout_triggered
+            and self.stdout == ""
+            and bool(self.stderr)
+        )
 
 
 TestResult.__test__ = False
@@ -56,6 +66,9 @@ class BehaviorContract(BaseModel):
     test_name: str
     args: List[str] = Field(default_factory=list)
     stdin: str = ""
+    input_files: Dict[str, bytes] = Field(default_factory=dict)
+    input_file_previews: Dict[str, str] = Field(default_factory=dict)
+    env_vars: Dict[str, str] = Field(default_factory=dict)
     stdout: str = ""
     stderr: str = ""
     exit_code: int = 0
@@ -100,6 +113,32 @@ class Invariant(BaseModel):
     supporting_samples: List[int] = Field(default_factory=list)  # indices into corpus
 
 
+class ImplementationStrategy(BaseModel):
+    """Domain implementation guidance inferred from cleanroom evidence."""
+    domain: str = "generic_cli"
+    implementation_playbook: List[str] = Field(default_factory=list)
+    validation_playbook: List[str] = Field(default_factory=list)
+    generalization_playbook: List[str] = Field(default_factory=list)
+    anti_patterns: List[str] = Field(default_factory=list)
+
+
+class StrategyPack(ImplementationStrategy):
+    """Implementation and repair playbooks for a task domain."""
+    repair_playbook: List[str] = Field(default_factory=list)
+
+
+class TaskProfile(BaseModel):
+    """Typed task-domain profile; mirrors the legacy complexity_hints dict."""
+    primary_domain: str = "generic_cli"
+    domains: List[str] = Field(default_factory=lambda: ["generic_cli"])
+    confidence: str = "fallback"
+    input_format_hints: List[str] = Field(default_factory=list)
+    implementation_hints: List[str] = Field(default_factory=list)
+    repair_hints: List[str] = Field(default_factory=list)
+    strategy_pack: StrategyPack = Field(default_factory=StrategyPack)
+    evidence_keywords: List[str] = Field(default_factory=list)
+
+
 class ProgramSpec(BaseModel):
     """Synthesized specification of the target program."""
     summary: str = ""
@@ -113,6 +152,7 @@ class ProgramSpec(BaseModel):
     stateful: bool = False
     raw_observations: str = ""  # LLM-readable summary of all observations
     behavior_contracts: List[BehaviorContract] = Field(default_factory=list)
+    task_profile: Optional[TaskProfile] = None
 
 
 class ModuleBlueprint(BaseModel):
@@ -164,6 +204,8 @@ class DiffReport(BaseModel):
     
     @property
     def is_equivalent(self) -> bool:
+        if self.original_result.executor_error or self.replacement_result.executor_error:
+            return False
         return (
             self.stdout_match
             and self.stderr_match

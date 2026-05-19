@@ -4,8 +4,12 @@ Base LLM client interface. All provider-specific clients must implement this.
 
 from __future__ import annotations
 
+import asyncio
+import random
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional
+
+import httpx
 from pydantic import BaseModel, Field
 
 
@@ -21,14 +25,28 @@ class LLMResponse(BaseModel):
     finish_reason: str = ""
 
 
+RETRYABLE_HTTPX_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.RemoteProtocolError,
+    httpx.PoolTimeout,
+    httpx.HTTPStatusError,
+)
+
+RETRYABLE_HTTP_STATUS_CODES: frozenset[int] = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
+
 class BaseLLMClient(ABC):
     """Abstract base class for LLM providers."""
-    
+
     def __init__(self, api_key: str, base_url: str, model: str, **kwargs):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.config = kwargs
+        self.max_retries = int(kwargs.get("max_retries", 2))
+        self.retry_delay = float(kwargs.get("retry_delay", 1.0))
         self._usage_phase = "unspecified"
         self._usage_by_phase: Dict[str, Dict[str, float]] = {}
     
@@ -54,6 +72,34 @@ class BaseLLMClient(ABC):
         """Stream the response content chunk by chunk."""
         pass
     
+    async def _retrying_request(
+        self,
+        send: Callable[[], Awaitable[httpx.Response]],
+    ) -> dict:
+        """Execute a request callable with shared exponential-backoff retry."""
+        for attempt in range(self.max_retries + 1):
+            try:
+                resp = await send()
+                resp.raise_for_status()
+                return resp.json()
+            except RETRYABLE_HTTPX_EXCEPTIONS as exc:
+                if attempt >= self.max_retries or not self._is_retryable(exc):
+                    raise
+                await asyncio.sleep(self._retry_sleep_delay(attempt))
+        raise RuntimeError("unreachable retry state")
+
+    def _retry_sleep_delay(self, attempt: int) -> float:
+        base_delay = self.retry_delay * (2 ** attempt)
+        if base_delay <= 0:
+            return 0
+        return base_delay + random.uniform(0, min(base_delay * 0.2, 1.0))
+
+    @staticmethod
+    def _is_retryable(exc: Exception) -> bool:
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code in RETRYABLE_HTTP_STATUS_CODES
+        return True
+
     def system_prompt(self, content: str) -> Message:
         return Message(role="system", content=content)
     

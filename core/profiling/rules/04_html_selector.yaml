@@ -1,0 +1,115 @@
+domain: html_selector
+keywords:
+- html
+- css selector
+- selector
+- tag
+- attribute
+- href
+- text
+- node
+- element
+- htmlq
+formats:
+- html
+- xml
+implementation_hints:
+- Parse HTML leniently and preserve selector semantics, text-vs-HTML output modes,
+  attribute extraction, and document order.
+- Prefer small deterministic selector support over broad dependencies unless the project
+  already allows them.
+repair_hints:
+- For HTML mismatches, check selector matching, text extraction whitespace, attribute
+  mode, and whether output keeps original markup.
+implementation_playbook:
+- Use html.parser.HTMLParser to build a lightweight DOM that preserves tag names,
+  attributes, text nodes, and original-ish inner/outer HTML when needed.
+- 'Implement a small selector engine for tag, #id, .class, [attr], [attr=value], descendant
+  selectors, and comma-separated selectors when observed.'
+- 'Keep output modes separate: outer HTML, inner text, attribute value, newline joining,
+  and empty-match behavior.'
+- For -t/--text, emit only text-node content from selected elements; preserve observed
+  separators and only drop whitespace-only text nodes when -w/--ignore-whitespace is
+  active.
+- For -a/--attribute, output one present attribute value per matched element in document
+  order; combine this with -b/--base or -B/--detect-base URL resolution when observed.
+- Apply mutation flags such as --remove-nodes before selecting output nodes, and return
+  empty output when mutations remove all matching nodes.
+- For htmlq-like no-selector invocation, preserve observed default output such as
+  <html><head></head><body></body></html> rather than treating missing selector as
+  an error.
+- For htmlq-like fragment input with no selector, wrap loose body children into the
+  observed <html><head></head><body>...</body></html> skeleton and preserve the
+  reference newline placement.
+- For htmlq-like --filename/--output, read from the named file and write selected
+  output to the exact output path while keeping stdout empty when observed.
+- 'For htmlq-like -p/--pretty output, preserve observed pretty-print layout: text
+  nodes may stay on the opening-tag line while closing tags are indented onto their
+  own line.'
+- For Rust-backed selector tools, preserve panic-style stderr and exit 101 for invalid
+  selectors and file-open failures when observed.
+- For htmlq-like invalid selectors, match the Rust panic text exactly, including single
+  quotes around main, no extra blank line before the backtrace note, and selector
+  text in parentheses.
+- Preserve document order and whitespace normalization exactly as contracts show;
+  do not pretty-print HTML.
+repair_playbook:
+- For selector failures, check class token matching, attribute equality, descendant
+  combinators, comma selector union order, and case sensitivity.
+- For text mismatches, compare entity unescaping, whitespace collapse, separators
+  between nodes, and trailing newline behavior.
+- For text-mode regressions, distinguish raw text extraction from --ignore-whitespace
+  filtering; whitespace-only nodes may be preserved without -w and skipped with -w.
+- For attribute mismatches, check absent attributes, one-value-per-line output, href/src
+  base URL resolution from --base and <base> when --detect-base is used, and document
+  order across repeated matches.
+- For markup mismatches, check whether the original emits outer HTML, inner HTML,
+  or raw source slices.
+- For malformed HTML mismatches, keep lenient browser-like tree repair and still emit
+  matched reconstructed outer HTML instead of crashing or returning empty output.
+- For --remove-nodes failures, verify the removal selector mutates the DOM before
+  the output selector and does not synthesize empty html/head/body wrappers after
+  all selected content is removed.
+- 'For no-argument htmlq failures, distinguish missing selector from empty-string
+  selector: no args may output an empty HTML skeleton, while an explicit empty selector
+  may panic.'
+- For no-selector fragment failures, compare synthesized html/head/body wrappers,
+  where the newline lands before </body>, and whether a trailing blank line is emitted.
+- For invalid selector failures, copy observed Rust panic text including leading blank
+  line, thread line with single-quoted 'main', source location, selector text, backtrace
+  note, and exit code 101.
+- For unknown-flag/flag-value selector failures, preserve whether leftover argv becomes
+  an empty selector panic instead of silently accepting or printing default output.
+- For a literal "-" positional argument, preserve the observed selector parsing behavior;
+  htmlq-like tools may treat it as a selector and panic rather than using it as stdin.
+- For --output combined with a selector parse panic, preserve output-file side effects
+  exactly; the target may be created, truncated, or left absent before the panic.
+- For --filename failures, preserve observed OS error structure including code, kind,
+  and message fields rather than abbreviated Python exceptions.
+- For --output failures, compare written file contents and stdout separately; many
+  selector tools write the selection to the file and leave stdout empty.
+- For pretty-print failures, compare newline placement around text nodes and closing
+  tags; do not collapse <p>Text</p> or <span>Text</span> onto one line if observed
+  output splits the closing tag.
+generalization_playbook:
+- Keep unseen holdout coverage for selector match/no-match, text mode, attribute mode,
+  remove-nodes mutation, pretty output, ignore-whitespace, no-selector input, and file output.
+- Validate dispatch for missing selector, malformed selector panic, unknown flags, filename
+  output, stdin/file input, and base URL resolution before tuning node serialization.
+- Prefer a reusable tree traversal and serializer over per-fragment output templates so new
+  tags, attributes, and nested structures keep the same ordering and newline rules.
+validation_playbook:
+- Smoke selector match/no-match, text extraction, attribute extraction, mutation,
+  pretty output, stdin/file input, output-file mode, and base URL resolution.
+- Run malformed selector, missing selector, unknown flag, missing file, and literal
+  '-' positional cases before accepting parser or serializer repairs.
+- Compare DOM selection, text whitespace, attribute ordering, file side effects, and
+  panic-style stderr as independent holdout dimensions.
+anti_patterns:
+- Do not parse HTML with one regex for nested or attributed elements.
+- Do not reorder nodes or reserialize with pretty formatting unless observed behavior
+  does.
+- Do not auto-insert html/head/body wrappers when the observed output is empty or
+  source-slice based.
+- Do not silently accept malformed CSS selectors if the reference panics or exits
+  nonzero.

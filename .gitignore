@@ -1,9 +1,11 @@
 .env
+.agent-blackboard/
 .claude/
 .venv/
 .venv-programbench/
 __pycache__/
 *.py[cod]
+*.log
 .pytest_cache/
 output/
 runs/

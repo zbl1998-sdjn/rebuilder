@@ -1,0 +1,71 @@
+# Local file-bridge config for a Codex-subagent cmatrix solved-task attempt.
+
+llm:
+  provider: "file_bridge"
+  file_bridge:
+    api_key: ""
+    request_dir: "output/file_bridge_llm_subagent_cmatrix_solved_20260518"
+    model: "codex-subagent-file-bridge"
+    temperature: 0.0
+    max_tokens: 8192
+    timeout: 3600
+    poll_interval: 1
+  glm:
+    api_key: "${GLM_API_KEY}"
+    base_url: "https://api.z.ai/api/coding/paas/v4"
+    model: "glm-5.1"
+    temperature: 0.2
+    max_tokens: 8192
+    timeout: 300
+    max_retries: 5
+    retry_delay: 2
+    thinking:
+      type: "disabled"
+  kimi:
+    api_key: "${KIMI_API_KEY}"
+    base_url: "https://api.moonshot.cn/v1"
+    model: "kimi-k2-6"
+    temperature: 0.3
+    max_tokens: 8192
+    timeout: 120
+  local_openai:
+    api_key: ""
+    base_url: "http://127.0.0.1:11434/v1"
+    model: "qwen2.5:7b"
+    temperature: 0.2
+    max_tokens: 2048
+    timeout: 300
+    max_retries: 0
+    retry_delay: 1
+
+probe:
+  max_probe_iterations: 2
+  timeout_per_run: 5
+  edge_case_strategies:
+    - "empty_input"
+    - "invalid_args"
+    - "boundary_values"
+
+architect:
+  preferred_languages:
+    - "python"
+  complexity_threshold: 3
+  max_modules: 2
+
+differential:
+  max_test_cases: 120
+  equivalence_threshold: 0.95
+  strict_exit_code: true
+  compare_stderr: true
+  compare_file_outputs: true
+  max_concurrency: 8
+
+implementation:
+  static_output_assets: false
+
+controller:
+  max_repair_iterations: 4
+  min_probe_coverage: 0.0
+  internal_holdout_ratio: 0.25
+  holdout_seed: "rebuilder-cmatrix-solved"
+  enable_early_stop: false

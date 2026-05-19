@@ -1,5 +1,6 @@
 import pytest
 import httpx
+from types import SimpleNamespace
 
 from llm_clients.glm_client import GLMClient
 
@@ -88,6 +89,39 @@ async def test_glm_client_retries_transient_connect_errors(monkeypatch):
 
     assert FlakyAsyncClient.attempts == 2
     assert response.content == "ok"
+
+
+@pytest.mark.asyncio
+async def test_glm_client_retry_backoff_includes_jitter(monkeypatch):
+    FlakyAsyncClient.attempts = 0
+    sleep_delays = []
+
+    async def fake_sleep(delay):
+        sleep_delays.append(delay)
+
+    import llm_clients.base as base_module
+
+    monkeypatch.setattr("llm_clients.glm_client.httpx.AsyncClient", FlakyAsyncClient)
+    monkeypatch.setattr(base_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(
+        base_module,
+        "random",
+        SimpleNamespace(uniform=lambda _low, _high: 0.25),
+        raising=False,
+    )
+    client = GLMClient(
+        api_key="key",
+        base_url="https://api.z.ai/api/coding/paas/v4",
+        model="glm-5.1",
+        timeout=10,
+        max_retries=1,
+        retry_delay=2,
+    )
+
+    response = await client.chat([client.user_prompt("hi")])
+
+    assert response.content == "ok"
+    assert sleep_delays == [2.25]
 
 
 def test_glm_client_caps_connect_timeout_for_long_requests():

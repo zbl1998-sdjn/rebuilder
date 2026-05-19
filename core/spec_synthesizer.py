@@ -5,9 +5,12 @@ Spec Synthesizer: Infer program specification from observed behavior corpus.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, List
 
-from core.data_models import BehaviorContract, BehaviorSample, ProgramSpec, Invariant, CLISurface
+from core.data_models import BehaviorContract, BehaviorSample, ProgramSpec, Invariant, CLISurface, TaskProfile
+from core.execution.env import safe_env_vars
+from core.execution.files import UnsafeInputFilePathError, safe_input_file_relative_path
 from core.llm_output import extract_json_object
 from core.profiling import infer_task_profile
 from llm_clients.base import BaseLLMClient, Message
@@ -17,6 +20,11 @@ from pydantic import ValidationError
 
 class SpecSynthesizer:
     """Use LLM to synthesize a human-readable program specification from behavior samples."""
+    
+    DOCUMENTATION_PROMPT_MAX_CHARS = 3000
+    OBSERVATION_PROMPT_MAX_CHARS = 4500
+    FAILED_DRAFT_MAX_CHARS = 2000
+    REPAIR_DRAFT_MAX_CHARS = 4000
     
     SYSTEM_PROMPT = """You are a senior software architect analyzing black-box behavior observations.
 Your task is to synthesize a precise, implementable specification of the target program.
@@ -46,12 +54,19 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
         """Synthesize specification from behavior corpus."""
         
         # Build rich observation text
-        observation_text = self._format_corpus(corpus)
+        observation_text = self._format_corpus(
+            corpus,
+            max_chars=self.OBSERVATION_PROMPT_MAX_CHARS,
+        )
+        documentation_text = self._format_documentation(
+            documentation,
+            max_chars=self.DOCUMENTATION_PROMPT_MAX_CHARS,
+        )
         
         messages = [
             self.llm.system_prompt(self.SYSTEM_PROMPT),
             self.llm.user_prompt(
-                f"Original documentation:\n{documentation}\n\n"
+                f"Original documentation:\n{documentation_text}\n\n"
                 f"Discovered CLI surface:\n{cli_surface.model_dump_json(indent=2)}\n\n"
                 f"Behavior observations ({len(corpus)} samples):\n{observation_text}\n\n"
                 f"Synthesize a complete implementable specification as JSON."
@@ -105,24 +120,192 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
             profile = {**profile, **existing}
         hints["task_profile"] = profile
         spec.complexity_hints = hints
+        try:
+            spec.task_profile = TaskProfile.model_validate(profile)
+        except ValidationError:
+            spec.task_profile = None
     
-    def _format_corpus(self, corpus: List[BehaviorSample]) -> str:
+    def _format_corpus(
+        self,
+        corpus: List[BehaviorSample],
+        max_chars: int | None = None,
+    ) -> str:
         """Format behavior samples into a readable text for the LLM."""
-        chunks = []
-        for i, sample in enumerate(corpus):
-            tc = sample.test_case
-            res = sample.observed_result
-            stdout_limit = 8000 if self._is_shell_init_sample(sample) else 500
-            stderr_limit = 2000 if self._is_shell_init_sample(sample) else 300
-            chunks.append(
-                f"=== Sample {i} [{', '.join(sample.tags)}] ===\n"
-                f"Input: args={tc.args}, stdin={repr(tc.stdin[:200])}\n"
-                f"Output: exit_code={res.exit_code}, stdout={repr(res.stdout[:stdout_limit])}, "
-                f"stderr={repr(res.stderr[:stderr_limit])}\n"
-                f"Files out: {list(res.output_files.keys())}\n"
-                f"File previews: {self._output_file_previews(res.output_files)}\n"
-            )
-        return "\n".join(chunks)
+        chunks = [
+            self._format_sample_for_prompt(i, sample, compact=False)
+            for i, sample in enumerate(corpus)
+        ]
+        formatted = "\n".join(chunks)
+        if max_chars is None or len(formatted) <= max_chars:
+            return formatted
+        return self._format_corpus_with_budget(corpus, max_chars)
+
+    def _format_corpus_with_budget(
+        self,
+        corpus: List[BehaviorSample],
+        max_chars: int,
+    ) -> str:
+        if max_chars <= 0:
+            return f"... {len(corpus)} samples omitted due to prompt budget."
+
+        prioritized = sorted(
+            enumerate(corpus),
+            key=lambda item: (-self._sample_prompt_priority(item[1], item[0]), item[0]),
+        )
+        footer = f"\n\n... {len(corpus)} samples omitted due to prompt budget."
+        body_budget = max(max_chars - len(footer), 0)
+        selected: list[tuple[int, str]] = []
+        used = 0
+        for i, sample in prioritized:
+            chunk = self._format_sample_for_prompt(i, sample, compact=True)
+            separator_len = 2 if selected else 0
+            remaining = body_budget - used - separator_len
+            if remaining <= 0:
+                continue
+            if len(chunk) > remaining:
+                if remaining < 240:
+                    continue
+                chunk = self._truncate_text(chunk, remaining)
+            selected.append((i, chunk))
+            used += separator_len + len(chunk)
+
+        if not selected:
+            return self._truncate_text(footer.strip(), max_chars)
+
+        selected.sort(key=lambda item: item[0])
+        omitted = max(len(corpus) - len(selected), 0)
+        body = "\n\n".join(chunk for _i, chunk in selected)
+        if omitted:
+            footer = f"\n\n... {omitted} samples omitted due to prompt budget."
+            if len(body) + len(footer) > max_chars:
+                body = self._truncate_text(body, max_chars - len(footer))
+            return f"{body}{footer}"
+        return self._truncate_text(body, max_chars)
+
+    def _format_sample_for_prompt(
+        self,
+        i: int,
+        sample: BehaviorSample,
+        *,
+        compact: bool,
+    ) -> str:
+        if compact:
+            return self._format_sample_for_prompt_compact(i, sample)
+
+        tc = sample.test_case
+        res = sample.observed_result
+        input_files, unsafe_input_names = self._safe_input_file_partition(tc.input_files)
+        args = self._redact_unsafe_input_file_args(tc.args, unsafe_input_names)
+        env_vars = safe_env_vars(tc.env_vars)
+        stdout_limit = 8000 if self._is_shell_init_sample(sample) else 500
+        stderr_limit = 2000 if self._is_shell_init_sample(sample) else 300
+        return (
+            f"=== Sample {i}: {tc.name} [{', '.join(sample.tags)}] ===\n"
+            f"Input: args={args}, stdin={repr(tc.stdin[:200])}\n"
+            f"Files in: {list(input_files.keys())}\n"
+            f"Input file previews: {self._file_previews(input_files)}\n"
+            f"Env: {env_vars}\n"
+            f"Output: exit_code={res.exit_code}, stdout={repr(res.stdout[:stdout_limit])}, "
+            f"stderr={repr(res.stderr[:stderr_limit])}\n"
+            f"Files out: {list(res.output_files.keys())}\n"
+            f"File previews: {self._file_previews(res.output_files)}\n"
+        )
+
+    def _format_sample_for_prompt_compact(self, i: int, sample: BehaviorSample) -> str:
+        tc = sample.test_case
+        res = sample.observed_result
+        input_files, unsafe_input_names = self._safe_input_file_partition(tc.input_files)
+        args = self._redact_unsafe_input_file_args(tc.args, unsafe_input_names)
+        env_vars = safe_env_vars(tc.env_vars)
+        stdout_limit = 1400 if self._is_shell_init_sample(sample) else 450
+        stderr_limit = 700 if self._is_shell_init_sample(sample) else 260
+        return (
+            f"=== Sample {i}: {tc.name} [{', '.join(sample.tags)}] ===\n"
+            f"Input: args={args}, stdin={repr(self._truncate_text(tc.stdin, 120))}\n"
+            f"Files in: {list(input_files.keys())}\n"
+            f"Input file previews: {self._file_previews(input_files, limit=260)}\n"
+            f"Env: {env_vars}\n"
+            f"Output: exit_code={res.exit_code}, "
+            f"stdout={repr(self._truncate_text(res.stdout, stdout_limit))}, "
+            f"stderr={repr(self._truncate_text(res.stderr, stderr_limit))}\n"
+            f"Files out: {list(res.output_files.keys())}\n"
+            f"File previews: {self._file_previews(res.output_files, limit=260)}\n"
+        )
+
+    def _sample_prompt_priority(self, sample: BehaviorSample, index: int) -> int:
+        tags = set(sample.tags)
+        name = sample.test_case.name.lower()
+        args = [str(arg).lower() for arg in sample.test_case.args]
+        result = sample.observed_result
+        priority = max(12 - index, 0)
+        if self._is_shell_init_sample(sample):
+            priority += 120
+        if "cli_discovery" in tags or "--help" in args or "help" in name:
+            priority += 110
+        if (
+            "file_io" in tags
+            or "side_effect" in tags
+            or sample.test_case.input_files
+            or result.output_files
+        ):
+            priority += 100
+        if (
+            "error_mode" in tags
+            or "invalid" in name
+            or result.exit_code != 0
+            or result.timeout_triggered
+        ):
+            priority += 90
+        if "stateful" in tags:
+            priority += 70
+        if any(tag.startswith("smoke_contract:") for tag in tags):
+            priority += 60
+        if any(tag.startswith("adaptive_axis:") for tag in tags):
+            priority += 50
+        if sample.test_case.stdin:
+            priority += 20
+        return priority
+
+    def _truncate_text(self, text: str, limit: int) -> str:
+        if limit <= 0:
+            return ""
+        if len(text) <= limit:
+            return text
+        marker = "\n...[truncated]"
+        if limit <= len(marker):
+            return text[:limit]
+        return f"{text[: limit - len(marker)]}{marker}"
+
+    def _truncate_middle(
+        self,
+        text: str,
+        limit: int,
+        marker: str = "\n...[truncated due to prompt budget]...\n",
+    ) -> str:
+        if limit <= 0:
+            return ""
+        if len(text) <= limit:
+            return text
+        if limit <= len(marker):
+            return text[:limit]
+        remaining = limit - len(marker)
+        head_len = max(remaining * 2 // 3, 0)
+        tail_len = remaining - head_len
+        return f"{text[:head_len]}{marker}{text[-tail_len:] if tail_len else ''}"
+
+    def _format_documentation(
+        self,
+        documentation: str,
+        max_chars: int | None = None,
+    ) -> str:
+        text = documentation.strip()
+        if max_chars is None:
+            return text
+        return self._truncate_middle(
+            text,
+            max_chars,
+            marker="\n...[documentation truncated due to prompt budget]...\n",
+        )
 
     def _contracts_from_corpus(
         self,
@@ -133,18 +316,22 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
         for sample in corpus[:limit]:
             tc = sample.test_case
             res = sample.observed_result
+            input_files, unsafe_input_names = self._safe_input_file_partition(tc.input_files)
             stdout_limit = 8000 if self._is_shell_init_sample(sample) else 2000
             stderr_limit = 8000 if self._is_shell_init_sample(sample) else 2000
             contracts.append(
                 BehaviorContract(
                     test_name=tc.name,
-                    args=tc.args,
+                    args=self._redact_unsafe_input_file_args(tc.args, unsafe_input_names),
                     stdin=tc.stdin[:1000],
+                    input_files=input_files,
+                    input_file_previews=self._file_previews(input_files),
+                    env_vars=safe_env_vars(tc.env_vars),
                     stdout=res.stdout[:stdout_limit],
                     stderr=res.stderr[:stderr_limit],
                     exit_code=res.exit_code,
                     output_files=sorted(res.output_files),
-                    output_file_previews=self._output_file_previews(res.output_files),
+                    output_file_previews=self._file_previews(res.output_files),
                     tags=sample.tags,
                 )
             )
@@ -158,7 +345,69 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
             or tc.args[:1] == ["init"]
         )
 
-    def _output_file_previews(
+    def _safe_input_files(self, input_files: dict[str, bytes]) -> dict[str, bytes]:
+        safe, _unsafe = self._safe_input_file_partition(input_files)
+        return safe
+
+    def _safe_input_file_partition(
+        self,
+        input_files: dict[str, bytes],
+    ) -> tuple[dict[str, bytes], set[str]]:
+        safe: dict[str, bytes] = {}
+        unsafe: set[str] = set()
+        for name, content in sorted(input_files.items()):
+            try:
+                normalized = safe_input_file_relative_path(name).as_posix()
+            except UnsafeInputFilePathError:
+                unsafe.add(name)
+                continue
+            safe[normalized] = content if isinstance(content, bytes) else str(content).encode("utf-8")
+        return safe, unsafe
+
+    def _redact_unsafe_input_file_args(
+        self,
+        args: list[str],
+        unsafe_input_names: set[str],
+    ) -> list[str]:
+        return [
+            "<unsafe_input_file>"
+            if arg in unsafe_input_names or self._is_unsafe_file_like_arg(arg)
+            else arg
+            for arg in args
+        ]
+
+    def _is_unsafe_file_like_arg(self, arg: str) -> bool:
+        if not isinstance(arg, str) or arg.startswith("-") or "://" in arg:
+            return False
+        if not self._is_probable_file_arg(arg):
+            return False
+        try:
+            safe_input_file_relative_path(arg)
+        except UnsafeInputFilePathError:
+            return True
+        return False
+
+    def _is_probable_file_arg(self, arg: str) -> bool:
+        file_suffixes = {
+            ".csv",
+            ".gz",
+            ".htm",
+            ".html",
+            ".json",
+            ".jsonl",
+            ".md",
+            ".mkd",
+            ".tar",
+            ".tgz",
+            ".txt",
+            ".xml",
+            ".xz",
+            ".zip",
+        }
+        normalized = arg.replace("\\", "/").lower()
+        return "/" in normalized or any(normalized.endswith(suffix) for suffix in file_suffixes)
+
+    def _file_previews(
         self,
         output_files: dict[str, bytes],
         limit: int = 2000,
@@ -176,7 +425,6 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
     
     def _parse_spec(self, text: str) -> ProgramSpec:
         """Parse LLM JSON output into ProgramSpec."""
-        import re
         text = text.strip()
         if text.startswith("```"):
             text = re.sub(r"```(?:json)?\s*", "", text).replace("```", "")
@@ -199,7 +447,7 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
                 complexity_hints=data.get("complexity_hints", {}),
                 raw_observations=raw_observations,
             )
-        except (json.JSONDecodeError, TypeError, ValidationError, ValueError) as e:
+        except (json.JSONDecodeError, TypeError, ValidationError, ValueError):
             # Fallback: return a minimal spec with raw text
             return ProgramSpec(
                 summary="Failed to parse structured spec. Raw LLM output preserved.",
@@ -218,7 +466,7 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
             self.llm.user_prompt(
                 "The previous attempt was not valid JSON for the required schema. "
                 "Reformat the draft below into a valid JSON object that preserves its meaning as conservatively as possible.\n\n"
-                f"{invalid_output}"
+                f"{self._truncate_middle(invalid_output.strip(), self.REPAIR_DRAFT_MAX_CHARS)}"
             ),
         ]
 
@@ -236,9 +484,12 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
             stateful=any("stateful" in sample.tags for sample in corpus),
             raw_observations=(
                 "Structured spec parsing failed; falling back to deterministic synthesis.\n\n"
-                f"Documentation:\n{documentation.strip()}\n\n"
-                f"Observed behavior:\n{self._format_corpus(corpus)}\n\n"
-                f"Unparsed model draft:\n{failed_output.strip()}"
+                "Documentation:\n"
+                f"{self._format_documentation(documentation, max_chars=self.DOCUMENTATION_PROMPT_MAX_CHARS)}\n\n"
+                "Observed behavior:\n"
+                f"{self._format_corpus(corpus, max_chars=self.OBSERVATION_PROMPT_MAX_CHARS)}\n\n"
+                "Unparsed model draft:\n"
+                f"{self._truncate_text(failed_output.strip(), self.FAILED_DRAFT_MAX_CHARS)}"
             ).strip(),
         )
 

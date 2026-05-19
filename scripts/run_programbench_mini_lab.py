@@ -14,18 +14,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.experiments.mini_lab import (
+from core.experiments.mini_lab import (  # noqa: E402
     MiniLabCommandBuilder,
     MiniLabReportWriter,
     MiniLabResultCollector,
 )
-from core.programbench.adapter import ProgramBenchTaskAdapter
-from core.programbench.catalog import load_sample_catalog, select_sample
-from core.programbench.samples import ProgramBenchSample
-from core.programbench.workspace import CleanroomWorkspace, CleanroomWorkspaceError
+from core.programbench.adapter import ProgramBenchTaskAdapter  # noqa: E402
+from core.programbench.catalog import load_sample_catalog, select_sample  # noqa: E402
+from core.programbench.samples import ProgramBenchSample  # noqa: E402
+from core.programbench.workspace import CleanroomWorkspace, CleanroomWorkspaceError  # noqa: E402
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a ProgramBench cleanroom mini-lab")
     parser.add_argument(
         "--catalog",
@@ -68,7 +68,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Pull missing task_cleanroom images during preparation",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--ack-external-llm-docker",
+        action="store_true",
+        help=(
+            "Required before running. Acknowledge that mini-lab reconstruction may "
+            "call external LLM APIs and Docker."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def select_mini_lab_samples(
@@ -207,8 +215,16 @@ def write_ablation_report(
     return json_path, markdown_path
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    if not args.ack_external_llm_docker:
+        print(
+            "ERROR: --ack-external-llm-docker is required because mini-lab runs "
+            "may call external LLM APIs and Docker.",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(2)
     catalog = load_sample_catalog(args.catalog)
     selected = select_mini_lab_samples(catalog, instances=args.instances, limit=args.limit)
     if not selected:

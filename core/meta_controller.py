@@ -4,15 +4,18 @@ Meta Controller: Orchestrate the full ReBuilder pipeline.
 
 from __future__ import annotations
 
-import os
+import hashlib
+import json
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import httpx
 from rich.console import Console
 from rich.progress import Progress, TextColumn
 
+from core.codebase.integrity import CodebaseIntegrityChecker, CodebaseIntegrityIssue
+from core.codebase.runtime_smoke import PythonRuntimeSmokeChecker
 from core.data_models import (
     BehaviorSample,
     CLISurface,
@@ -23,6 +26,7 @@ from core.data_models import (
     TaskResult,
 )
 from core.probe_engine import ProbeEngine
+from core.probing.axis_coverage import summarize_probe_axis_coverage
 from core.probing.corpus import CorpusSplitter
 from core.spec_synthesizer import SpecSynthesizer
 from core.architect_agent import ArchitectAgent
@@ -47,7 +51,7 @@ def progress_columns(description: str):
 
 class MetaController:
     """Orchestrates the full probe-specify-architect-implement-validate-repair loop."""
-    
+
     def __init__(
         self,
         llm_client: BaseLLMClient,
@@ -67,6 +71,8 @@ class MetaController:
         reference_executor_backend=None,
         replacement_executor_backend=None,
         enable_static_output_assets: bool = True,
+        enable_adaptive_probes: bool = True,
+        differential_concurrency: int = 8,
     ):
         self.llm = llm_client
         self.max_repair_iterations = max_repair_iterations
@@ -87,24 +93,87 @@ class MetaController:
         self.reference_executor_backend = reference_executor_backend
         self.replacement_executor_backend = replacement_executor_backend
         self.enable_static_output_assets = enable_static_output_assets
+        self.enable_adaptive_probes = enable_adaptive_probes
+        self.differential_concurrency = max(1, int(differential_concurrency))
         self.probe_engine: Optional[ProbeEngine] = None
         self.spec: Optional[ProgramSpec] = None
         self.blueprint: Optional[ArchitectureBlueprint] = None
         self.codebase: Optional[Codebase] = None
         self.probe_coverage_report = None
         self.logs: List[str] = []
-    
+        self.repair_decisions: list[dict[str, object]] = []
+
     def log(self, message: str):
         self.logs.append(message)
         console.log(f"[ReBuilder] {message}")
-    
+
     async def run(self, task_id: str, executable: Path, documentation: str) -> TaskResult:
         """Execute the full ReBuilder pipeline on a ProgramBench task."""
         self.llm.reset_usage_tracking()
+        self.repair_decisions = []
         self.log(f"Starting task {task_id}")
         self.log(f"Target executable: {executable}")
-        
-        # Phase 1: Probe
+
+        corpus, exploration_corpus, holdout_corpus = await self._phase_probe(
+            executable, documentation
+        )
+        await self._phase_spec(documentation, exploration_corpus)
+        await self._phase_architect(self.spec)
+        await self._phase_implement(task_id, self.spec, self.blueprint)
+
+        if not self.codebase.executable_path or not self.codebase.executable_path.exists():
+            self.codebase.executable_path = self._resolve_executable(self.codebase)
+
+        if self.codebase.executable_path:
+            best_reports, resolved_rate, repair_iterations_used = (
+                await self._phase_validate_and_repair(
+                    task_id, executable, exploration_corpus
+                )
+            )
+            almost_resolved = resolved_rate >= 0.95
+            status = "success" if resolved_rate >= 0.99 else (
+                "partial" if almost_resolved else "failed"
+            )
+            self._write_exploration_failure_report(task_id, best_reports)
+            holdout_resolved_rate = await self._evaluate_holdout(
+                executable=executable,
+                replacement=self.codebase.executable_path,
+                holdout_corpus=holdout_corpus,
+            )
+            return self._build_task_result(
+                task_id=task_id,
+                status=status,
+                corpus=corpus,
+                exploration_corpus=exploration_corpus,
+                holdout_corpus=holdout_corpus,
+                best_reports=best_reports,
+                resolved_rate=resolved_rate,
+                almost_resolved=almost_resolved,
+                repair_iterations_used=repair_iterations_used,
+                holdout_resolved_rate=holdout_resolved_rate,
+            )
+        else:
+            self.log("ERROR: Could not resolve replacement executable path")
+            return TaskResult(
+                task_id=task_id,
+                status="failed",
+                codebase=self.codebase,
+                resolved_rate=0.0,
+                almost_resolved=False,
+                iterations_used=0,
+                probes_conducted=len(corpus),
+                exploration_cases=len(exploration_corpus),
+                holdout_cases=len(holdout_corpus),
+                implementation_metadata=self._implementation_metadata(),
+                logs=self.logs,
+            )
+
+    async def _phase_probe(
+        self,
+        executable: Path,
+        documentation: str,
+    ) -> Tuple[list, list, list]:
+        """Phase 1: Probe the black-box executable and split corpus."""
         with Progress(
             *progress_columns("Probing black-box executable..."),
             console=console,
@@ -120,11 +189,12 @@ class MetaController:
                 timeout=self.probe_timeout,
                 evidence_store=self.evidence_store,
                 executor_backend=self.reference_executor_backend,
+                enable_adaptive_probes=self.enable_adaptive_probes,
             )
             self.llm.set_usage_phase("probe")
             corpus = await self.probe_engine.probe()
             progress.update(probe_task, completed=True)
-        
+
         self.log(f"Probe complete: {len(corpus)} behavior samples collected")
         self.probe_coverage_report = BehavioralCoverageAnalyzer().analyze(
             corpus,
@@ -146,8 +216,10 @@ class MetaController:
                 f"Internal split: {len(exploration_corpus)} exploration, "
                 f"{len(holdout_corpus)} holdout"
             )
-        
-        # Phase 2: Synthesize Specification
+        return corpus, exploration_corpus, holdout_corpus
+
+    async def _phase_spec(self, documentation: str, exploration_corpus: list) -> None:
+        """Phase 2: Synthesize the program specification."""
         with Progress(
             *progress_columns("Synthesizing specification..."),
             console=console,
@@ -161,10 +233,10 @@ class MetaController:
                 cli_surface=self.probe_engine.cli_surface,
             )
             progress.update(spec_task, completed=True)
-        
         self.log(f"Specification synthesized: {self.spec.summary[:100]}...")
-        
-        # Phase 3: Architecture Design
+
+    async def _phase_architect(self, spec: ProgramSpec) -> None:
+        """Phase 3: Design the architecture blueprint."""
         with Progress(
             *progress_columns("Designing architecture..."),
             console=console,
@@ -177,15 +249,23 @@ class MetaController:
                 max_modules=self.max_architecture_modules,
             )
             self.llm.set_usage_phase("architecture")
-            self.blueprint = await architect.design(self.spec)
+            self.blueprint = await architect.design(spec)
             progress.update(arch_task, completed=True)
-        
-        self.log(f"Architecture designed: {self.blueprint.language}, {len(self.blueprint.modules)} modules")
-        
-        # Phase 4: Implementation
+        self.log(
+            f"Architecture designed: {self.blueprint.language}, "
+            f"{len(self.blueprint.modules)} modules"
+        )
+
+    async def _phase_implement(
+        self,
+        task_id: str,
+        spec: ProgramSpec,
+        blueprint: ArchitectureBlueprint,
+    ) -> None:
+        """Phase 4: Generate the codebase implementation."""
         output_dir = self._output_dir_for_task(task_id)
         self._prepare_output_dir(output_dir)
-        
+
         with Progress(
             *progress_columns("Implementing codebase..."),
             console=console,
@@ -196,50 +276,137 @@ class MetaController:
                 enable_static_output_assets=self.enable_static_output_assets,
             )
             self.llm.set_usage_phase("implementation")
-            self.codebase = await implementer.implement(self.spec, self.blueprint, output_dir)
+            self.codebase = await implementer.implement(spec, blueprint, output_dir)
             progress.update(impl_task, completed=True)
-        
         self.log(f"Implementation complete: {len(self.codebase.files)} files")
-        
-        # Phase 5: Differential Validation & Repair Loop
-        if not self.codebase.executable_path or not self.codebase.executable_path.exists():
-            # For Python, we need to handle execution differently
-            self.codebase.executable_path = self._resolve_executable(self.codebase)
-        
-        if self.codebase.executable_path:
-            tester = DifferentialTester(
-                original=executable,
-                replacement=self.codebase.executable_path,
-                llm_client=self.llm,
-                original_backend=self.reference_executor_backend,
-                replacement_backend=self.replacement_executor_backend,
-            )
-            
-            best_reports: List[DiffReport] = []
-            resolved_rate = 0.0
-            accepted_codebase = self.codebase.model_copy(deep=True)
-            accepted_reports: List[DiffReport] = []
-            accepted_rate = -1.0
-            rejected_repair_targets = set()
-            last_repair_target_key = None
-            repair_iterations_used = 0
-            validation_passes = self.max_repair_iterations + 1
-            
-            for validation_pass in range(validation_passes):
-                self.log(f"Validation pass {validation_pass + 1}/{validation_passes}")
-                
-                reports = await tester.run_full_suite(exploration_corpus)
-                best_reports = reports
-                
-                passed = sum(1 for r in reports if r.is_equivalent)
-                total = len(reports)
-                resolved_rate = passed / total if total > 0 else 0.0
-                self.log(f"Behavioral equivalence: {passed}/{total} ({resolved_rate:.1%})")
 
-                if validation_pass > 0 and resolved_rate < accepted_rate:
+    async def _phase_validate_and_repair(
+        self,
+        task_id: str,
+        executable: Path,
+        exploration_corpus: list,
+    ) -> Tuple[List[DiffReport], float, int]:
+        """Phase 5: Differential validation and iterative repair loop."""
+        tester = DifferentialTester(
+            original=executable,
+            replacement=self.codebase.executable_path,
+            llm_client=self.llm,
+            original_backend=self.reference_executor_backend,
+            replacement_backend=self.replacement_executor_backend,
+            max_concurrency=self.differential_concurrency,
+        )
+
+        best_reports: List[DiffReport] = []
+        resolved_rate = 0.0
+        accepted_codebase = self.codebase.model_copy(deep=True)
+        accepted_reports: List[DiffReport] = []
+        accepted_rate = -1.0
+        rejected_repair_targets = set()
+        last_repair_target_key = None
+        pending_repair_decision: dict[str, object] | None = None
+        repair_iterations_used = 0
+        validation_passes = self.max_repair_iterations + 1
+
+        for validation_pass in range(validation_passes):
+            self.log(f"Validation pass {validation_pass + 1}/{validation_passes}")
+
+            reports = await tester.run_full_suite(exploration_corpus)
+            best_reports = reports
+
+            passed = sum(1 for r in reports if r.is_equivalent)
+            total = len(reports)
+            resolved_rate = passed / total if total > 0 else 0.0
+            self.log(f"Behavioral equivalence: {passed}/{total} ({resolved_rate:.1%})")
+
+            if validation_pass > 0 and resolved_rate < accepted_rate:
+                if pending_repair_decision is not None:
+                    self._finish_repair_decision(
+                        pending_repair_decision,
+                        post_exploration_rate=resolved_rate,
+                        status="rejected",
+                        reject_reason="exploration_regressed",
+                    )
+                    pending_repair_decision = None
+                self.log(
+                    "Repair rejected: behavioral equivalence decreased "
+                    f"from {accepted_rate:.1%} to {resolved_rate:.1%}"
+                )
+                if last_repair_target_key is not None:
+                    rejected_repair_targets.add(last_repair_target_key)
+                last_repair_target_key = None
+                self._restore_codebase_files(accepted_codebase, self.codebase)
+                self.codebase = accepted_codebase.model_copy(deep=True)
+                self.codebase.executable_path = self._resolve_executable(self.codebase)
+                best_reports = accepted_reports
+                reports = accepted_reports
+                resolved_rate = accepted_rate
+            else:
+                if validation_pass > 0 and pending_repair_decision is not None:
+                    self._finish_repair_decision(
+                        pending_repair_decision,
+                        post_exploration_rate=resolved_rate,
+                        status="accepted",
+                        reject_reason=None,
+                    )
+                    pending_repair_decision = None
+                rejected_repair_targets.clear()
+                last_repair_target_key = None
+                accepted_codebase = self.codebase.model_copy(deep=True)
+                accepted_reports = reports
+                accepted_rate = resolved_rate
+
+            if resolved_rate >= 0.99:
+                self.log("Behavioral equivalence achieved!")
+                break
+
+            if repair_iterations_used >= self.max_repair_iterations:
+                break
+
+            clusterer = FailureClusterer()
+            cluster = clusterer.repair_target(reports, excluded_keys=rejected_repair_targets)
+            if cluster is None:
+                break
+            last_repair_target_key = clusterer.target_key(cluster)
+            pending_repair_decision = self._start_repair_decision(
+                clusterer=clusterer,
+                cluster=cluster,
+                iteration=repair_iterations_used + 1,
+                pre_exploration_rate=resolved_rate,
+                exploration_cases=len(reports),
+            )
+            self.repair_decisions.append(pending_repair_decision)
+
+            repair = RepairLoop(self.llm)
+            self.log(
+                f"Repair target cluster: {cluster.kind.value} "
+                f"({len(cluster.reports)} failures)"
+            )
+            try:
+                self.llm.set_usage_phase("repair")
+                strategy = await repair.diagnose_cluster(cluster, self.spec, self.codebase)
+                self.log(
+                    f"Repair strategy: {strategy.strategy_type} -> "
+                    f"{strategy.description[:80]}..."
+                )
+                pending_repair_decision["strategy_type"] = strategy.strategy_type
+                self.llm.set_usage_phase("repair")
+                self.codebase = await repair.apply_repair(strategy, self.codebase, self.spec)
+                repair_issues = await self._find_repair_candidate_issues(self.codebase)
+                if repair_issues:
+                    if pending_repair_decision is not None:
+                        self._finish_repair_decision(
+                            pending_repair_decision,
+                            post_exploration_rate=None,
+                            status="rejected",
+                            reject_reason="repair_integrity_failed",
+                        )
+                        pending_repair_decision["integrity_issues"] = [
+                            issue.message for issue in repair_issues[:3]
+                        ]
+                        pending_repair_decision = None
                     self.log(
-                        "Repair rejected: behavioral equivalence decreased "
-                        f"from {accepted_rate:.1%} to {resolved_rate:.1%}"
+                        "Repair rejected: generated candidate failed integrity check: "
+                        f"{repair_issues[0].message}"
                     )
                     if last_repair_target_key is not None:
                         rejected_repair_targets.add(last_repair_target_key)
@@ -247,129 +414,193 @@ class MetaController:
                     self._restore_codebase_files(accepted_codebase, self.codebase)
                     self.codebase = accepted_codebase.model_copy(deep=True)
                     self.codebase.executable_path = self._resolve_executable(self.codebase)
-                    best_reports = accepted_reports
-                    reports = accepted_reports
-                    resolved_rate = accepted_rate
-                else:
-                    rejected_repair_targets.clear()
-                    last_repair_target_key = None
-                    accepted_codebase = self.codebase.model_copy(deep=True)
-                    accepted_reports = reports
-                    accepted_rate = resolved_rate
-                
-                if resolved_rate >= 0.99:
-                    self.log("Behavioral equivalence achieved!")
-                    break
-
-                if repair_iterations_used >= self.max_repair_iterations:
-                    break
-                
-                clusterer = FailureClusterer()
-                cluster = clusterer.repair_target(reports, excluded_keys=rejected_repair_targets)
-                if cluster is None:
-                    break
-                last_repair_target_key = clusterer.target_key(cluster)
-                
-                repair = RepairLoop(self.llm)
+                    repair_iterations_used += 1
+                    continue
+            except httpx.HTTPError as exc:
+                if pending_repair_decision is not None:
+                    self._finish_repair_decision(
+                        pending_repair_decision,
+                        post_exploration_rate=None,
+                        status="skipped",
+                        reject_reason="llm_transport_failure",
+                    )
+                    pending_repair_decision["error_type"] = type(exc).__name__
+                    pending_repair_decision = None
                 self.log(
-                    f"Repair target cluster: {cluster.kind.value} "
-                    f"({len(cluster.reports)} failures)"
+                    "WARNING: Skipping repair iteration after LLM transport failure: "
+                    f"{type(exc).__name__}"
                 )
-                try:
-                    self.llm.set_usage_phase("repair")
-                    strategy = await repair.diagnose_cluster(cluster, self.spec, self.codebase)
-                    self.log(f"Repair strategy: {strategy.strategy_type} -> {strategy.description[:80]}...")
-                    self.llm.set_usage_phase("repair")
-                    self.codebase = await repair.apply_repair(strategy, self.codebase, self.spec)
-                except httpx.HTTPError as exc:
-                    self.log(
-                        "WARNING: Skipping repair iteration after LLM transport failure: "
-                        f"{type(exc).__name__}"
-                    )
-                    break
-                repair_iterations_used += 1
-                # Re-resolve executable after repair
-                self.codebase.executable_path = self._resolve_executable(self.codebase)
-                if self.codebase.executable_path:
-                    tester = DifferentialTester(
-                        original=executable,
-                        replacement=self.codebase.executable_path,
-                        llm_client=self.llm,
-                        original_backend=self.reference_executor_backend,
-                        replacement_backend=self.replacement_executor_backend,
-                    )
-            
-            almost_resolved = resolved_rate >= 0.95
-            status = "success" if resolved_rate >= 0.99 else ("partial" if almost_resolved else "failed")
-            self._write_exploration_failure_report(task_id, best_reports)
-            holdout_resolved_rate = await self._evaluate_holdout(
-                executable=executable,
-                replacement=self.codebase.executable_path,
-                holdout_corpus=holdout_corpus,
-            )
-            
-            return TaskResult(
-                task_id=task_id,
-                status=status,
-                codebase=self.codebase,
-                final_diff_report=best_reports[0] if best_reports else None,
-                resolved_rate=resolved_rate,
-                almost_resolved=almost_resolved,
-                iterations_used=repair_iterations_used,
-                probes_conducted=len(corpus),
-                exploration_cases=len(exploration_corpus),
-                holdout_cases=len(holdout_corpus),
-                holdout_resolved_rate=holdout_resolved_rate,
-                implementation_metadata=self._implementation_metadata(),
-                logs=self.logs,
-            )
-        else:
-            self.log("ERROR: Could not resolve replacement executable path")
-            return TaskResult(
-                task_id=task_id,
-                status="failed",
-                codebase=self.codebase,
-                resolved_rate=0.0,
-                almost_resolved=False,
-                iterations_used=0,
-                probes_conducted=len(corpus),
-                exploration_cases=len(exploration_corpus),
-                holdout_cases=len(holdout_corpus),
-                implementation_metadata=self._implementation_metadata(),
-                logs=self.logs,
-            )
-    
+                break
+            repair_iterations_used += 1
+            self.codebase.executable_path = self._resolve_executable(self.codebase)
+            if self.codebase.executable_path:
+                tester = DifferentialTester(
+                    original=executable,
+                    replacement=self.codebase.executable_path,
+                    llm_client=self.llm,
+                    original_backend=self.reference_executor_backend,
+                    replacement_backend=self.replacement_executor_backend,
+                    max_concurrency=self.differential_concurrency,
+                )
+
+        return best_reports, resolved_rate, repair_iterations_used
+
+    async def _find_repair_candidate_issues(
+        self,
+        codebase: Codebase,
+    ) -> list[CodebaseIntegrityIssue]:
+        """Reject repair candidates that cannot run before behavioral validation."""
+        entry_point = self._entry_point_for_codebase(codebase)
+        issues = CodebaseIntegrityChecker().find_issues(codebase, entry_point=entry_point)
+        if issues:
+            return issues
+        return await PythonRuntimeSmokeChecker().find_issues(
+            codebase,
+            entry_point=entry_point,
+            behavior_contracts=self.spec.behavior_contracts if self.spec else [],
+        )
+
+    def _entry_point_for_codebase(self, codebase: Codebase) -> str | None:
+        executable = self._resolve_executable(codebase)
+        if executable is None:
+            return None
+        try:
+            return executable.relative_to(codebase.root_path).as_posix()
+        except ValueError:
+            return executable.name
+
+    def _start_repair_decision(
+        self,
+        *,
+        clusterer: FailureClusterer,
+        cluster,
+        iteration: int,
+        pre_exploration_rate: float,
+        exploration_cases: int,
+    ) -> dict[str, object]:
+        target_key = clusterer.target_key(cluster)
+        cluster_id = self._repair_cluster_id(target_key)
+        return {
+            "iteration": iteration,
+            "cluster_id": cluster_id,
+            "cluster_kind": cluster.kind.value,
+            "cluster_size": len(cluster.reports),
+            "pre_exploration_rate": pre_exploration_rate,
+            "post_exploration_rate": None,
+            "exploration_cases": exploration_cases,
+            "status": "pending_validation",
+            "reject_reason": None,
+            "holdout_evaluated": False,
+        }
+
+    def _finish_repair_decision(
+        self,
+        decision: dict[str, object],
+        *,
+        post_exploration_rate: float | None,
+        status: str,
+        reject_reason: str | None,
+    ) -> None:
+        decision["post_exploration_rate"] = post_exploration_rate
+        decision["status"] = status
+        decision["reject_reason"] = reject_reason
+        decision["holdout_evaluated"] = False
+
+    def _repair_cluster_id(self, target_key) -> str:
+        kind, report_keys = target_key
+        payload = json.dumps(
+            {
+                "kind": kind.value,
+                "reports": self._normalize_repair_key(report_keys),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()[:16]
+
+    def _normalize_repair_key(self, value):
+        if isinstance(value, tuple):
+            return [self._normalize_repair_key(item) for item in value]
+        if isinstance(value, list):
+            return [self._normalize_repair_key(item) for item in value]
+        return str(value)
+
+    def _build_task_result(
+        self,
+        task_id: str,
+        status: str,
+        corpus: list,
+        exploration_corpus: list,
+        holdout_corpus: list,
+        best_reports: List[DiffReport],
+        resolved_rate: float,
+        almost_resolved: bool,
+        repair_iterations_used: int,
+        holdout_resolved_rate,
+    ) -> TaskResult:
+        """Build the final TaskResult from pipeline outputs."""
+        implementation_metadata = self._implementation_metadata()
+        probe_axis_coverage = summarize_probe_axis_coverage(corpus)
+        if (
+            probe_axis_coverage["smoke_contract_axis_count"]
+            or probe_axis_coverage["adaptive_axis_count"]
+        ):
+            implementation_metadata["probe_axis_coverage"] = probe_axis_coverage
+        return TaskResult(
+            task_id=task_id,
+            status=status,
+            codebase=self.codebase,
+            final_diff_report=best_reports[0] if best_reports else None,
+            resolved_rate=resolved_rate,
+            almost_resolved=almost_resolved,
+            iterations_used=repair_iterations_used,
+            probes_conducted=len(corpus),
+            exploration_cases=len(exploration_corpus),
+            holdout_cases=len(holdout_corpus),
+            holdout_resolved_rate=holdout_resolved_rate,
+            implementation_metadata=implementation_metadata,
+            logs=self.logs,
+        )
+
     def _resolve_executable(self, codebase: Codebase) -> Optional[Path]:
         """Determine how to run the replacement codebase."""
         if codebase.executable_path and codebase.executable_path.exists():
             return codebase.executable_path
 
         if codebase.language.lower() == "python":
-            # Find the entry point
             entry_candidates = ["main.py", "app.py", "cli.py", "__main__.py"]
             for candidate in entry_candidates:
                 if candidate in codebase.files:
                     return codebase.root_path / candidate
-        
-        # For compiled languages, check for build artifacts
-        # This is simplified; real implementation would run the build script
+
         return codebase.executable_path
 
     def _implementation_metadata(self) -> dict:
         llm_usage = self.llm.usage_summary()
-        probe_coverage = self.probe_coverage_report.model_dump(mode="json") if self.probe_coverage_report else None
+        probe_coverage = (
+            self.probe_coverage_report.model_dump(mode="json")
+            if self.probe_coverage_report
+            else None
+        )
+        repair_decisions = [dict(decision) for decision in self.repair_decisions]
         if not self.codebase:
-            return {
+            metadata = {
                 "static_output_assets_enabled": self.enable_static_output_assets,
                 "llm_usage": llm_usage,
                 "probe_coverage": probe_coverage,
             }
-        return {
+            if repair_decisions:
+                metadata["repair_decisions"] = repair_decisions
+            return metadata
+        metadata = {
             "static_output_assets_enabled": self.enable_static_output_assets,
             "llm_usage": llm_usage,
             "probe_coverage": probe_coverage,
             **self.codebase.generation_metadata,
         }
+        if repair_decisions:
+            metadata["repair_decisions"] = repair_decisions
+        return metadata
 
     def _output_dir_for_task(self, task_id: str) -> Path:
         return self.output_root / task_id
@@ -453,6 +684,7 @@ class MetaController:
             llm_client=None,
             original_backend=self.reference_executor_backend,
             replacement_backend=self.replacement_executor_backend,
+            max_concurrency=self.differential_concurrency,
         )
         reports = await tester.run_full_suite(holdout_corpus)
         passed = sum(1 for report in reports if report.is_equivalent)

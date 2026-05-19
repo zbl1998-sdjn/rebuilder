@@ -1,0 +1,83 @@
+domain: csv_table
+keywords:
+- csv
+- delimiter
+- quote
+- header
+- column
+- select
+- sort
+- table
+- record
+- tsv
+formats:
+- csv
+- tsv
+- table
+implementation_hints:
+- Use Python csv parsing instead of ad-hoc split logic so quoting, embedded delimiters,
+  and newlines remain correct.
+- Preserve header handling, column selection order, delimiter flags, and empty-field
+  rendering exactly.
+repair_hints:
+- For table mismatches, inspect delimiter, quoting, header, row ordering, and trailing
+  newline behavior first.
+- Avoid normalizing whitespace unless observations prove the original does.
+implementation_playbook:
+- Centralize input acquisition from stdin, '-' and file arguments; keep text newline
+  handling explicit.
+- Use csv.reader/csv.writer with dialect parameters inferred from flags and contracts
+  rather than splitting rows manually.
+- Represent rows as lists plus optional header metadata so select/search/sort/count
+  commands share parsing logic.
+- For xsv-like multi-command tools, keep the documented subcommand variant order exact
+  in invalid-command errors; do not alphabetize or reorder help variants.
+- 'For xsv-like subcommands, model file side effects separately from stdout: index
+  may write an index file while keeping stdout empty, and those output files are part
+  of the behavior contract.'
+- For join-like commands, preserve the documented positional arity even for mode flags
+  such as --cross; do not invent a shorter cross-join form unless observations prove it.
+- For sample-like commands, model whether observations require deterministic seeded
+  sampling, reservoir sampling, or contract-specific replay; preserve headers and
+  row order exactly.
+- For frequency-like commands, preserve field order, count-desc ordering, and observed
+  tie stability instead of blindly sorting tied values lexicographically.
+- Preserve output delimiter, quoting mode, empty fields, record order, and final newline
+  exactly as shown in contracts.
+repair_playbook:
+- When stdout differs, first compare delimiter, quoting, header inclusion, selected
+  column order, and row sort stability.
+- When file/STDIN cases differ, verify '-' handling and whether no-arg mode reads
+  stdin or prints usage.
+- For invalid subcommand failures, diff the complete allowed-variants list including
+  order, quoting, commas, and line wrapping before changing parser logic.
+- For index failures, compare generated sidecar file names and bytes, not just stdout
+  and stderr.
+- For join failures, compare usage arity and invalid-argument diagnostics before adding
+  permissive fallback behavior.
+- For frequency failures, compare field iteration order and tie handling within a field
+  before changing global sort logic.
+- For sample failures, compare header retention, deterministic seed behavior, reservoir-vs-index
+  sampling, selected row order, and whether stdin/file input changes randomness.
+- When stderr differs, copy observed CSV parse diagnostics and missing-column wording
+  before changing parser internals.
+generalization_playbook:
+- Keep unseen holdout rows that cross stdin, file path, '-' input, alternate delimiters,
+  headers/no headers, quoted delimiters, empty fields, and final-newline cases.
+- Exercise dispatch for every observed subcommand with missing args, unknown subcommands,
+  and file side effects so parser fixes do not overfit one stdout transcript.
+- Reuse one dialect-aware table pipeline for select/search/sort/sample/frequency paths
+  instead of per-contract string fixtures.
+validation_playbook:
+- Smoke stdin, file, '-' input, quoted delimiters, empty fields, headers/no headers,
+  and alternate delimiters through the same parser before accepting a repair.
+- For multi-command tools, run help, unknown subcommand, missing-argument, and at
+  least one side-effect command where output files are part of the contract.
+- Track exploration and holdout rates per subcommand family so a fix for one CSV
+  operation cannot silently regress another operation.
+anti_patterns:
+- Do not implement CSV by str.split(',') because quoted delimiters and embedded newlines
+  will break.
+- Do not strip or collapse whitespace in fields unless observed behavior proves it.
+- Do not sort subcommands or enum variants unless the reference output sorts them.
+- Do not use Python random defaults for sampling when observed outputs are deterministic.

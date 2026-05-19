@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core.programbench.documentation import load_documentation
+
 
 class CleanroomWorkspaceError(RuntimeError):
     """Raised when an exported workspace violates the cleanroom contract."""
@@ -59,8 +61,4 @@ class CleanroomWorkspace:
 
     @staticmethod
     def _load_documentation(root: Path) -> str:
-        for name in ("README.md", "doc.txt", "documentation.txt"):
-            path = root / name
-            if path.exists() and path.is_file():
-                return path.read_text(encoding="utf-8")
-        return ""
+        return load_documentation(root)

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-05-15T10:37:30.456307+00:00",
+  "instance_id": "rbakbashev__elfcat.52f8cc7",
+  "model": "glm-5.1",
+  "config_path": "config\\settings.yaml",
+  "notes": "Historical official aggregate baseline discovered from existing eval artifact: 96/564 counted tests, score 17; local holdout was only 2 cases, so retained as low-sample aggregate evidence, not a current gate-passing breakthrough.",
+  "local": {
+    "status": "success",
+    "resolved_rate": 1.0,
+    "holdout_resolved_rate": 1.0,
+    "probes_conducted": 9,
+    "iterations_used": 0
+  },
+  "official": {
+    "passed_tests": 96,
+    "total_tests": 564,
+    "pass_rate": 0.1702127659574468,
+    "score": 17,
+    "fully_resolved": false,
+    "almost_resolved": false,
+    "error_code": null,
+    "warning_count": 0
+  },
+  "submission": {
+    "path": "runs\\programbench_resolved_batch1_20260512\\submission_elfcat\\rbakbashev__elfcat.52f8cc7\\submission.tar.gz",
+    "sha256": "68924ed628826475b27323747f76d9ed5b63a1102defcd382a1e9fe99a46deb5"
+  }
+}
