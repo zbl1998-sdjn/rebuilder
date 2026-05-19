@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from core.submission import parse_runtime_smoke_dimensions  # noqa: E402
+from scripts.run_official_closed_loop import is_local_llm_config  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -66,6 +67,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Required with --execute. Acknowledge that the closed-loop run may call "
             "external LLM APIs and Docker while official eval remains disabled."
+        ),
+    )
+    parser.add_argument(
+        "--ack-local-llm-docker",
+        action="store_true",
+        help=(
+            "Required alternative with --execute for file_bridge or loopback local_openai configs. "
+            "Acknowledge local LLM handoff plus Docker, without external LLM APIs."
         ),
     )
     parser.add_argument(
@@ -172,8 +181,11 @@ def build_closed_loop_command(args: argparse.Namespace) -> list[str]:
         command.append("--pull")
     if args.force:
         command.append("--force")
-    if args.execute and args.ack_external_llm_docker and not getattr(args, "dry_run", False):
-        command.append("--ack-external-llm-docker")
+    if args.execute and not getattr(args, "dry_run", False):
+        if args.ack_external_llm_docker:
+            command.append("--ack-external-llm-docker")
+        elif args.ack_local_llm_docker:
+            command.append("--ack-local-llm-docker")
     return command
 
 
@@ -202,10 +214,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run or not args.execute:
         print(" ".join(command))
         return 0
-    if not args.ack_external_llm_docker:
+    if not (
+        args.ack_external_llm_docker
+        or (args.ack_local_llm_docker and is_local_llm_config(args.config))
+    ):
+        if args.ack_local_llm_docker:
+            print(
+                "ERROR: local LLM ack --ack-local-llm-docker is only valid for file_bridge or "
+                "loopback local_openai configs; use --ack-external-llm-docker for external providers.",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 2
         print(
             "ERROR: --execute requires --ack-external-llm-docker because the run may "
-            "call external LLM APIs and Docker.",
+            "call external LLM APIs and Docker. For file_bridge or loopback local_openai "
+            "configs, pass --ack-local-llm-docker instead.",
             file=sys.stderr,
             flush=True,
         )

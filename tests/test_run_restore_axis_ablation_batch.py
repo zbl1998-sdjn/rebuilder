@@ -99,6 +99,7 @@ def test_build_strategy_ablation_command_is_guarded_by_default():
     module = load_module()
     args = argparse.Namespace(
         output_root="runs/restore_axis_ablation_next",
+        config="config/settings.yaml",
         variants=["baseline_no_adaptive", "adaptive_profile"],
         runs="runs",
         baseline_root="baselines/programbench",
@@ -107,6 +108,7 @@ def test_build_strategy_ablation_command_is_guarded_by_default():
         max_generalization_risk="low",
         execute=False,
         ack_external_llm_docker=False,
+        ack_local_llm_docker=False,
         keep_going=False,
     )
 
@@ -114,6 +116,7 @@ def test_build_strategy_ablation_command_is_guarded_by_default():
 
     assert command[:3] == [module.sys.executable, "scripts/run_official_strategy_ablation.py", "task.restore"]
     assert command[command.index("--runs") + 1] == "runs/restore_axis_ablation_next/task.restore"
+    assert command[command.index("--config") + 1] == "config/settings.yaml"
     assert command[command.index("--variants") + 1 : command.index("--variants") + 3] == [
         "baseline_no_adaptive",
         "adaptive_profile",
@@ -127,6 +130,32 @@ def test_build_strategy_ablation_command_is_guarded_by_default():
     assert command[command.index("--min-smoke-contract-axes") + 1] == "1"
     assert command[command.index("--require-runtime-smoke-dimensions") + 1] == "args,input_files"
     assert "--dry-run" in command
+
+
+def test_build_strategy_ablation_command_can_forward_local_llm_ack():
+    module = load_module()
+    args = argparse.Namespace(
+        output_root="runs/restore_axis_ablation_next",
+        config="config/smoke_file_bridge.yaml",
+        variants=["baseline_no_adaptive"],
+        runs="runs",
+        baseline_root="baselines/programbench",
+        min_smoke_contract_axes=1,
+        required_runtime_smoke_dimensions=(),
+        max_generalization_risk="low",
+        execute=True,
+        dry_run=False,
+        ack_external_llm_docker=False,
+        ack_local_llm_docker=True,
+        keep_going=False,
+    )
+
+    command = module.build_strategy_ablation_command("task.restore", args)
+
+    assert command[command.index("--config") + 1] == "config/smoke_file_bridge.yaml"
+    assert "--ack-local-llm-docker" in command
+    assert "--ack-external-llm-docker" not in command
+    assert "--dry-run" not in command
 
 
 def test_main_default_dry_run_prints_without_runner(tmp_path, monkeypatch, capsys):
@@ -213,6 +242,68 @@ def test_main_execute_requires_external_llm_docker_ack(tmp_path, monkeypatch, ca
     assert exit_code == 2
     assert calls == []
     assert "--ack-external-llm-docker" in captured.err
+
+
+def test_main_execute_accepts_local_llm_ack_for_file_bridge_config(tmp_path, monkeypatch):
+    module = load_module()
+    runs = tmp_path / "runs"
+    baselines = tmp_path / "baselines"
+    write_baseline(baselines / "restore.baseline.json", "task.restore", 3)
+    write_result(runs / "restore_old", "task.restore", 0.92, 12, timestamp=1_700_000_100)
+    write_result(runs / "restore_new", "task.restore", 0.55, 12, timestamp=1_700_000_200)
+    calls = []
+
+    monkeypatch.setattr(module, "run_command", lambda command, timeout_seconds: calls.append(command) or 0)
+
+    exit_code = module.main(
+        [
+            "task.restore",
+            "--runs",
+            str(runs),
+            "--baseline-root",
+            str(baselines),
+            "--config",
+            "config/smoke_file_bridge.yaml",
+            "--execute",
+            "--ack-local-llm-docker",
+        ]
+    )
+
+    assert exit_code == 0
+    assert len(calls) == 1
+    assert "--ack-local-llm-docker" in calls[0]
+    assert "--ack-external-llm-docker" not in calls[0]
+
+
+def test_main_execute_rejects_local_ack_for_external_config(tmp_path, monkeypatch, capsys):
+    module = load_module()
+    runs = tmp_path / "runs"
+    baselines = tmp_path / "baselines"
+    write_baseline(baselines / "restore.baseline.json", "task.restore", 3)
+    write_result(runs / "restore_old", "task.restore", 0.92, 12, timestamp=1_700_000_100)
+    write_result(runs / "restore_new", "task.restore", 0.55, 12, timestamp=1_700_000_200)
+    calls = []
+
+    monkeypatch.setattr(module, "run_command", lambda command, timeout_seconds: calls.append(command) or 0)
+
+    exit_code = module.main(
+        [
+            "task.restore",
+            "--runs",
+            str(runs),
+            "--baseline-root",
+            str(baselines),
+            "--config",
+            "config/settings.yaml",
+            "--execute",
+            "--ack-local-llm-docker",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert calls == []
+    assert "--ack-local-llm-docker" in captured.err
 
 
 def test_main_filters_restore_targets_by_axis_action_domain(tmp_path, monkeypatch, capsys):

@@ -514,6 +514,7 @@ def build_guarded_rerun_command(
     task_id: str,
     rerun_root: str,
     *,
+    config: str | None = None,
     min_smoke_contract_axes: int = 0,
     required_runtime_smoke_dimensions: tuple[str, ...] | list[str] | str = (),
     min_holdout_improvement_delta: float = 0.0,
@@ -529,8 +530,11 @@ def build_guarded_rerun_command(
     run_path = (Path(rerun_root) / safe_path_slug(task_id)).as_posix()
     command = (
         "python scripts/run_weak_task_cleanroom_rerun.py "
-        f"{quote_shell_arg(task_id)} --runs {quote_shell_arg(run_path)} --dry-run"
+        f"{quote_shell_arg(task_id)} "
     )
+    if config:
+        command += f"--config {quote_shell_arg(config)} "
+    command += f"--runs {quote_shell_arg(run_path)} --dry-run"
     if min_smoke_contract_axes > 0:
         command += f" --min-smoke-contract-axes {int(min_smoke_contract_axes)}"
     if required_dimensions:

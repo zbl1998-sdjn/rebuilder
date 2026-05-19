@@ -51,6 +51,24 @@ def test_build_closed_loop_command_passes_runtime_smoke_dimension_gate_without_i
     assert "--official-eval-root" not in command
 
 
+def test_build_closed_loop_command_can_forward_local_llm_ack():
+    args = parse_args(
+        [
+            "alecthomas__chroma.8d04def",
+            "--config",
+            "config/smoke_file_bridge.yaml",
+            "--execute",
+            "--ack-local-llm-docker",
+        ]
+    )
+
+    command = build_closed_loop_command(args)
+
+    assert command[command.index("--config") + 1] == "config/smoke_file_bridge.yaml"
+    assert "--ack-local-llm-docker" in command
+    assert "--ack-external-llm-docker" not in command
+
+
 def test_default_mode_is_dry_run_without_execute(monkeypatch, capsys):
     called = False
 
@@ -87,6 +105,57 @@ def test_execute_requires_external_llm_docker_ack(monkeypatch, capsys):
     assert exit_code == 2
     assert not called
     assert "--ack-external-llm-docker" in captured.err
+
+
+def test_execute_accepts_local_llm_ack_for_file_bridge_config(monkeypatch):
+    seen = {}
+
+    def fake_run_command(command, *, timeout_seconds):
+        seen["command"] = command
+        seen["timeout_seconds"] = timeout_seconds
+        return 0
+
+    monkeypatch.setattr("scripts.run_missing_holdout_cleanroom_rerun.run_command", fake_run_command)
+
+    exit_code = main(
+        [
+            "alecthomas__chroma.8d04def",
+            "--config",
+            "config/smoke_file_bridge.yaml",
+            "--execute",
+            "--ack-local-llm-docker",
+        ]
+    )
+
+    assert exit_code == 0
+    assert "--ack-local-llm-docker" in seen["command"]
+    assert "--ack-external-llm-docker" not in seen["command"]
+
+
+def test_execute_rejects_local_llm_ack_for_external_config(monkeypatch, capsys):
+    called = False
+
+    def fake_run_command(command, *, timeout_seconds):
+        nonlocal called
+        called = True
+        return 0
+
+    monkeypatch.setattr("scripts.run_missing_holdout_cleanroom_rerun.run_command", fake_run_command)
+
+    exit_code = main(
+        [
+            "alecthomas__chroma.8d04def",
+            "--config",
+            "config/settings.yaml",
+            "--execute",
+            "--ack-local-llm-docker",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert not called
+    assert "--ack-local-llm-docker" in captured.err
 
 
 def test_execute_forwards_external_ack(monkeypatch):

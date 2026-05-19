@@ -22,6 +22,7 @@ from scripts.plan_official_breakthrough_targets import (  # noqa: E402
     safe_path_component,
 )
 from core.submission import parse_runtime_smoke_dimensions  # noqa: E402
+from scripts.run_official_closed_loop import is_local_llm_config  # noqa: E402
 
 DEFAULT_VARIANTS = ("baseline_no_adaptive", "adaptive_profile", "adaptive_deep")
 
@@ -41,6 +42,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--baseline-root", default="baselines/programbench", help="Recorded baseline root")
     parser.add_argument("--official-eval-root", default="runs/programbench_official_eval")
     parser.add_argument("--output-root", default="runs/restore_axis_ablation_next", help="Ablation output root")
+    parser.add_argument("--config", default="config/settings.yaml", help="ReBuilder config path")
     parser.add_argument("--limit", type=positive_int, default=20, help="Maximum restore targets to include")
     parser.add_argument("--min-holdout-cases", type=non_negative_int, default=10)
     parser.add_argument("--min-holdout-rate", type=rate_float, default=0.8)
@@ -76,6 +78,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Required with --execute. Acknowledge that child runs may call external "
             "LLM APIs and Docker while official eval remains disabled by this wrapper."
+        ),
+    )
+    parser.add_argument(
+        "--ack-local-llm-docker",
+        action="store_true",
+        help=(
+            "Required alternative with --execute for file_bridge or loopback local_openai configs. "
+            "Acknowledge local LLM handoff plus Docker, without external LLM APIs."
         ),
     )
     parser.add_argument(
@@ -181,6 +191,8 @@ def build_strategy_ablation_command(task_id: str, args: argparse.Namespace) -> l
         task_id,
         "--runs",
         run_root.as_posix(),
+        "--config",
+        args.config,
         "--variants",
         *args.variants,
         "--skip-official-eval",
@@ -205,8 +217,11 @@ def build_strategy_ablation_command(task_id: str, args: argparse.Namespace) -> l
         )
     if args.keep_going:
         command.append("--keep-going")
-    if args.execute and args.ack_external_llm_docker and not getattr(args, "dry_run", False):
-        command.append("--ack-external-llm-docker")
+    if args.execute and not getattr(args, "dry_run", False):
+        if args.ack_external_llm_docker:
+            command.append("--ack-external-llm-docker")
+        elif args.ack_local_llm_docker:
+            command.append("--ack-local-llm-docker")
     if getattr(args, "dry_run", False) or not args.execute:
         command.append("--dry-run")
     return command
@@ -263,10 +278,22 @@ def run_command(command: list[str], *, timeout_seconds: float) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.execute and not args.dry_run and not args.ack_external_llm_docker:
+    if args.execute and not args.dry_run and not (
+        args.ack_external_llm_docker
+        or (args.ack_local_llm_docker and is_local_llm_config(args.config))
+    ):
+        if args.ack_local_llm_docker:
+            print(
+                "ERROR: local LLM ack --ack-local-llm-docker is only valid for file_bridge or "
+                "loopback local_openai configs; use --ack-external-llm-docker for external providers.",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 2
         print(
             "ERROR: --execute requires --ack-external-llm-docker because child runs "
-            "may call external LLM APIs and Docker.",
+            "may call external LLM APIs and Docker. For file_bridge or loopback local_openai "
+            "configs, pass --ack-local-llm-docker instead.",
             file=sys.stderr,
             flush=True,
         )

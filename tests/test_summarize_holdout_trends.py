@@ -416,6 +416,17 @@ def test_guarded_rerun_command_can_include_runtime_smoke_dimension_gate():
     assert command.endswith("--dry-run --require-runtime-smoke-dimensions args,input_files")
 
 
+def test_guarded_rerun_command_can_include_config_path():
+    command = build_guarded_rerun_command(
+        "task.hexyl",
+        "runs/weak",
+        config="config/smoke_file_bridge.yaml",
+    )
+
+    assert "--config config/smoke_file_bridge.yaml" in command
+    assert command.endswith("--dry-run")
+
+
 def test_guarded_rerun_command_can_include_holdout_improvement_delta():
     command = build_guarded_rerun_command(
         "task.hexyl",
