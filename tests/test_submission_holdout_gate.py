@@ -467,6 +467,67 @@ def test_package_submission_script_can_require_low_generalization_risk(tmp_path)
     assert not (tmp_path / "out" / "sample" / "submission.tar.gz").exists()
 
 
+def test_package_submission_script_can_require_low_local_holdout_gap(tmp_path):
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    (generated / "main.py").write_text("print('ok')\n", encoding="utf-8")
+    runs = tmp_path / "runs"
+    baselines = tmp_path / "baselines"
+    baselines.mkdir()
+    (baselines / "sample.baseline.json").write_text(
+        json.dumps(
+            {
+                "instance_id": "sample",
+                "official": {
+                    "score": 8,
+                    "pass_rate": 0.08,
+                    "passed_tests": 8,
+                    "total_tests": 100,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    latest = runs / "latest" / "result.json"
+    latest.parent.mkdir(parents=True)
+    write_result(latest, holdout_cases=12, holdout_resolved_rate=0.88, resolved_rate=1.0)
+    os.utime(latest, (1_700_000_200, 1_700_000_200))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/package_submission.py",
+            "sample",
+            "--generated",
+            str(generated),
+            "--output",
+            str(tmp_path / "out"),
+            "--result",
+            str(latest),
+            "--min-holdout-rate",
+            "0.8",
+            "--min-holdout-cases",
+            "10",
+            "--max-generalization-risk",
+            "low",
+            "--max-local-holdout-gap",
+            "0.1",
+            "--generalization-risk-root",
+            str(runs),
+            "--baseline-root",
+            str(baselines),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "generalization risk" in result.stderr.lower()
+    assert "local_holdout_gap_too_high" in result.stderr
+    assert not (tmp_path / "out" / "sample" / "submission.tar.gz").exists()
+
+
 @pytest.mark.parametrize(
     "flag_and_value",
     [
@@ -477,6 +538,8 @@ def test_package_submission_script_can_require_low_generalization_risk(tmp_path)
         ("--min-smoke-contract-axes", "-1"),
         ("--min-holdout-improvement-delta", "-0.01"),
         ("--min-holdout-improvement-delta", "nan"),
+        ("--max-local-holdout-gap", "-0.01"),
+        ("--max-local-holdout-gap", "nan"),
     ],
 )
 def test_package_submission_script_rejects_negative_gate_thresholds(tmp_path, flag_and_value):

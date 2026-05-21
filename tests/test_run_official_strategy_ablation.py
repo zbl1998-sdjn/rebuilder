@@ -37,6 +37,7 @@ def args(**overrides):
         "min_holdout_cases": 10,
         "min_smoke_contract_axes": 0,
         "required_runtime_smoke_dimensions": (),
+        "adaptive_probe_exclude_domain": [],
         "workers": 1,
         "branch_workers": 1,
         "docker_cpus": 4,
@@ -53,6 +54,7 @@ def args(**overrides):
         "holdout_history_root": "runs",
         "holdout_history_exclude_roots": [],
         "max_generalization_risk": None,
+        "max_local_holdout_gap": 0.15,
         "generalization_risk_root": "runs",
         "baseline_root": "baselines/programbench",
         "keep_going": False,
@@ -134,10 +136,24 @@ def test_build_closed_loop_command_passes_runtime_smoke_dimension_gate():
     assert command[command.index("--require-runtime-smoke-dimensions") + 1] == "args,input_files"
 
 
+def test_build_closed_loop_command_passes_adaptive_probe_domain_exclusions():
+    command = build_closed_loop_command(
+        args(adaptive_probe_exclude_domain=["csv_table", "json_transform"]),
+        "adaptive_profile",
+    )
+
+    assert command.count("--adaptive-probe-exclude-domain") == 2
+    first = command.index("--adaptive-probe-exclude-domain")
+    assert command[first + 1] == "csv_table"
+    second = command.index("--adaptive-probe-exclude-domain", first + 1)
+    assert command[second + 1] == "json_transform"
+
+
 def test_build_closed_loop_command_passes_generalization_risk_gate():
     command = build_closed_loop_command(
         args(
             max_generalization_risk="low",
+            max_local_holdout_gap=0.1,
             generalization_risk_root="runs/risk-history",
             baseline_root="baselines/programbench",
             official_eval_root="runs/eval",
@@ -146,6 +162,7 @@ def test_build_closed_loop_command_passes_generalization_risk_gate():
     )
 
     assert command[command.index("--max-generalization-risk") + 1] == "low"
+    assert command[command.index("--max-local-holdout-gap") + 1] == "0.1"
     assert command[command.index("--generalization-risk-root") + 1] == "runs/risk-history"
     assert command[command.index("--baseline-root") + 1] == "baselines/programbench"
 
@@ -159,6 +176,8 @@ def test_build_closed_loop_command_passes_generalization_risk_gate():
         ("--min-smoke-contract-axes", "-1"),
         ("--min-holdout-improvement-delta", "-0.01"),
         ("--min-holdout-improvement-delta", "nan"),
+        ("--max-local-holdout-gap", "-0.01"),
+        ("--max-local-holdout-gap", "nan"),
     ],
 )
 def test_parse_args_rejects_negative_gate_thresholds(flag_and_value):

@@ -427,6 +427,18 @@ def test_guarded_rerun_command_can_include_config_path():
     assert command.endswith("--dry-run")
 
 
+def test_guarded_rerun_command_can_include_local_llm_ack():
+    command = build_guarded_rerun_command(
+        "task.hexyl",
+        "runs/weak",
+        config="config/smoke_file_bridge.yaml",
+        ack_local_llm_docker=True,
+    )
+
+    assert "--config config/smoke_file_bridge.yaml" in command
+    assert command.endswith("--dry-run --ack-local-llm-docker")
+
+
 def test_guarded_rerun_command_can_include_holdout_improvement_delta():
     command = build_guarded_rerun_command(
         "task.hexyl",

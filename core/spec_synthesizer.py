@@ -313,7 +313,7 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
         limit: int = 24,
     ) -> list[BehaviorContract]:
         contracts: list[BehaviorContract] = []
-        for sample in corpus[:limit]:
+        for sample in self._select_contract_samples(corpus, limit):
             tc = sample.test_case
             res = sample.observed_result
             input_files, unsafe_input_names = self._safe_input_file_partition(tc.input_files)
@@ -337,6 +337,56 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
             )
         return contracts
 
+    def _select_contract_samples(
+        self,
+        corpus: list[BehaviorSample],
+        limit: int,
+    ) -> list[BehaviorSample]:
+        if limit <= 0:
+            return []
+        if len(corpus) <= limit:
+            return list(corpus)
+
+        selected = list(corpus[:limit])
+        selected_ids = {id(sample) for sample in selected}
+        sparse_dimensions = (
+            self._sample_has_input_files,
+            self._sample_has_output_files,
+            self._sample_has_env_vars,
+            self._sample_has_stdin,
+            self._sample_has_nonzero_exit,
+        )
+        additions: list[BehaviorSample] = []
+        for predicate in sparse_dimensions:
+            if any(predicate(sample) for sample in selected):
+                continue
+            candidate = next(
+                (
+                    sample
+                    for sample in corpus[limit:]
+                    if id(sample) not in selected_ids
+                    and id(sample) not in {id(addition) for addition in additions}
+                    and predicate(sample)
+                ),
+                None,
+            )
+            if candidate is not None:
+                additions.append(candidate)
+
+        if not additions:
+            return selected
+
+        while len(selected) + len(additions) > limit and selected:
+            remove_index = min(
+                range(len(selected)),
+                key=lambda index: (
+                    self._sample_sparse_dimension_count(selected[index]),
+                    -index,
+                ),
+            )
+            del selected[remove_index]
+        return selected + additions
+
     def _is_shell_init_sample(self, sample: BehaviorSample) -> bool:
         tc = sample.test_case
         return (
@@ -344,6 +394,34 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
             or tc.name.startswith("shell_init_")
             or tc.args[:1] == ["init"]
         )
+
+    def _sample_sparse_dimension_count(self, sample: BehaviorSample) -> int:
+        return sum(
+            (
+                self._sample_has_input_files(sample),
+                self._sample_has_output_files(sample),
+                self._sample_has_env_vars(sample),
+                self._sample_has_stdin(sample),
+                self._sample_has_nonzero_exit(sample),
+            )
+        )
+
+    def _sample_has_input_files(self, sample: BehaviorSample) -> bool:
+        safe, _unsafe = self._safe_input_file_partition(sample.test_case.input_files)
+        return bool(safe)
+
+    def _sample_has_output_files(self, sample: BehaviorSample) -> bool:
+        return bool(sample.observed_result.output_files)
+
+    def _sample_has_env_vars(self, sample: BehaviorSample) -> bool:
+        return bool(safe_env_vars(sample.test_case.env_vars))
+
+    def _sample_has_stdin(self, sample: BehaviorSample) -> bool:
+        return bool(sample.test_case.stdin)
+
+    def _sample_has_nonzero_exit(self, sample: BehaviorSample) -> bool:
+        return sample.observed_result.exit_code != 0
+
 
     def _safe_input_files(self, input_files: dict[str, bytes]) -> dict[str, bytes]:
         safe, _unsafe = self._safe_input_file_partition(input_files)
@@ -528,7 +606,7 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
         """Normalize common LLM JSON variants into CLISurface shape."""
         normalized = dict(cli_surface or {})
 
-        subcommand_sections = []
+        subcommand_sections: list[dict[str, Any]] = []
         subcommands = normalized.get("subcommands", [])
         if isinstance(subcommands, dict):
             normalized["subcommands"] = list(subcommands.keys())
@@ -536,7 +614,7 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
                 item for item in subcommands.values() if isinstance(item, dict)
             ]
         elif isinstance(subcommands, list):
-            names = []
+            names: list[str] = []
             for item in subcommands:
                 if isinstance(item, str):
                     names.append(item)
@@ -547,14 +625,14 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
         else:
             normalized["subcommands"] = []
 
-        flag_inputs = []
+        flag_inputs: list[Any] = []
         flag_inputs.extend(normalized.get("global_flags", []) or [])
         flag_inputs.extend(normalized.get("flags", []) or [])
         for section in subcommand_sections:
             flag_inputs.extend(section.get("flags", []) or [])
 
-        flags = []
-        seen_flags = set()
+        flags: list[dict[str, Any]] = []
+        seen_flags: set[str] = set()
         for item in flag_inputs:
             flag = self._normalize_flag(item)
             if flag and flag["name"] not in seen_flags:
@@ -562,7 +640,7 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
                 flags.append(flag)
         normalized["flags"] = flags
 
-        positional_args = []
+        positional_args: list[dict[str, Any]] = []
         positional_inputs = list(normalized.get("positional_args", []) or [])
         for section in subcommand_sections:
             positional_inputs.extend(section.get("positional_args", []) or [])
@@ -572,7 +650,7 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
                 positional_args.append(arg)
         normalized["positional_args"] = positional_args
 
-        parsed_codes = set(self._parse_exit_codes(normalized.get("exit_codes", [])))
+        parsed_codes: set[int] = set(self._parse_exit_codes(normalized.get("exit_codes", [])))
         for section in subcommand_sections:
             parsed_codes.update(self._parse_exit_codes(section.get("exit_codes", [])))
         normalized["exit_codes"] = sorted(parsed_codes)
@@ -616,7 +694,7 @@ Be precise and conservative. If you are uncertain about a behavior, note it as s
     def _parse_exit_codes(self, exit_codes: Any) -> list[int]:
         parsed_codes = []
         if isinstance(exit_codes, dict):
-            raw_values = exit_codes.keys()
+            raw_values: list[Any] = list(exit_codes.keys())
         elif isinstance(exit_codes, list):
             raw_values = [
                 item.get("code") if isinstance(item, dict) else item

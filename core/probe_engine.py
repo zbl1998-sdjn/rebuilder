@@ -60,6 +60,7 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
         evidence_store: EvidenceStore | None = None,
         executor_backend=None,
         enable_adaptive_probes: bool = True,
+        adaptive_probe_exclude_domains: list[str] | tuple[str, ...] | None = None,
     ):
         self.executable = executable if executor_backend else Path(executable)
         self.documentation = documentation
@@ -75,6 +76,11 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
             else None
         )
         self.enable_adaptive_probes = enable_adaptive_probes
+        self.adaptive_probe_exclude_domains = tuple(
+            domain.strip().lower()
+            for domain in (adaptive_probe_exclude_domains or ())
+            if isinstance(domain, str) and domain.strip()
+        )
         self.corpus: List[BehaviorSample] = []
         self.cli_surface = CLISurface()
         self.seen_tests: Set[str] = set()
@@ -165,7 +171,9 @@ Be creative: test happy paths, edge cases, invalid inputs, boundary conditions, 
             corpus=self.corpus,
         )
         primary_domain = profile.get("primary_domain", "generic_cli")
-        for tc in AdaptiveProbePlanner().plan(
+        for tc in AdaptiveProbePlanner(
+            excluded_domains=self.adaptive_probe_exclude_domains
+        ).plan(
             profile,
             documentation=self.documentation,
             cli_surface=self.cli_surface,

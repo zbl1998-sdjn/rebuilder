@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import subprocess
 import time
-import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,13 +65,7 @@ class SubprocessDockerClient:
         self.command_timeout = command_timeout
 
     def inspect_image(self, image: str) -> bool:
-        result = subprocess.run(
-            ["docker", "image", "inspect", image],
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=self.command_timeout,
-        )
+        result = self._run_no_check(["docker", "image", "inspect", image])
         return result.returncode == 0
 
     def pull_image(self, image: str) -> None:
@@ -98,26 +91,29 @@ class SubprocessDockerClient:
         self._run(["docker", "cp", f"{container_id}:{source_path}/.", str(destination_path)])
 
     def remove_container(self, container_id: str) -> None:
-        subprocess.run(
-            ["docker", "rm", "-f", container_id],
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=self.command_timeout,
-        )
+        self._run_no_check(["docker", "rm", "-f", container_id])
 
     def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(
-            command,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=self.command_timeout,
-        )
+        result = self._run_no_check(command)
         if result.returncode != 0:
             raise RuntimeError(
                 f"Command failed ({result.returncode}): {' '.join(command)}\n{result.stderr}"
             )
+        return result
+
+    def _run_no_check(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            result = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=self.command_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Command timed out after {self.command_timeout}s: {' '.join(command)}"
+            ) from exc
         return result
 
     def _pull_retry_sleep_delay(self, attempt: int) -> float:

@@ -80,16 +80,31 @@ Verified locally on Windows with Docker Desktop:
   default dimensions. This is an aggregate official baseline upgrade, not a
   solved task.
 - Tenth non-zoxide official generalization baseline:
-  `chmln__sd.87d1ba5` ProgramBench info score `86` (`697/810` counted
-  tests; raw eval `750/869`) from a no-external-LLM file_bridge subagent
-  closed-loop run. Local holdout was `14/14`, and runtime smoke passed across
-  `args`, `stdin`, `input_files`, and default dimensions. This is an
-  aggregate official baseline, not a solved task.
-- Historical low-sample official aggregate baselines discovered from existing
+  `chmln__sd.87d1ba5` ProgramBench info score `86` (`699/810` counted
+  tests; raw eval `752/869`) from no-external-LLM `file_bridge` subagent
+  runs, most recently `baseline_regex_patch1`. Local holdout was `12/12`,
+  and runtime smoke passed across `args`, `stdin`, `input_files`, and default
+  dimensions. This is a same-score aggregate official baseline refinement, not
+  a solved task.
+- Official elfcat aggregate baseline:
+  `rbakbashev__elfcat.52f8cc7` ProgramBench info score `56` (`316/564`
+  counted tests; raw eval `390/646`) from a no-external-LLM `file_bridge`
+  official aggregate baseline. Later `reference_html_patch2` and
+  `reference_html_patch3` local candidates reached exploration `119/119` and
+  holdout `17/18`, but their official eval attempts timed out or failed at the
+  evaluator/Docker boundary without a usable aggregate `.eval.json`. The
+  closed-loop runner now records that missing-eval-json path as an operational
+  failure instead of summarizing it as `0/0`. The ranker/planner also no longer
+  attaches stale same-task failure reports to newer candidates, and invalid
+  embedded `0/0` summaries are routed as official-eval operational failures.
+  The score `56` record remains the baseline and is not a solved task.
+- Historical low-sample official aggregate baseline discovered from existing
   eval artifacts and now frozen in `baselines/programbench`:
-  `rbakbashev__elfcat.52f8cc7` score `17` (`96/564` counted tests) and
-  `alecthomas__chroma.8d04def` score `3` (`13/515` counted tests). These are
-  retained as aggregate evidence, not as current gate-passing breakthroughs.
+  `alecthomas__chroma.8d04def` score `3` (`13/515` counted tests). This is
+  retained as aggregate evidence, not as a current gate-passing breakthrough.
+  A later no-external `file_bridge` restore candidate reached local
+  exploration/holdout `100%`, but official eval scored `0` (`0/515`
+  counted), so it did not update the baseline.
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
@@ -749,8 +764,8 @@ Completed:
   and `16/16` holdout, and `fully_resolved` remains false
 - Official jarun nnn aggregate baseline: `379/477` counted tests,
   ProgramBench info score `79` from a closed-loop, assets-disabled candidate
-- Official chmln sd aggregate baseline: `697/810` counted tests, ProgramBench
-  info score `86`; local holdout was `14/14`, runtime smoke passed, but
+- Official chmln sd aggregate baseline: `699/810` counted tests, ProgramBench
+  info score `86`; latest local holdout was `12/12`, runtime smoke passed, but
   `fully_resolved` and `almost_resolved` are still false
 - Improved zip-password-finder official aggregate baseline: `248/680` counted
   tests, ProgramBench info score `36` from an archive/clap strategy-pack
@@ -785,7 +800,8 @@ Completed:
 - Existing official eval artifacts can now be audited against recorded baselines
   with `scripts\audit_official_baseline_candidates.py`; it reports only
   aggregate unrecorded or upgrade candidates, then stays empty after the
-  historical elfcat/chroma baselines and current chmln sd baseline are frozen.
+  historical chroma baseline plus current elfcat and chmln sd baselines are
+  frozen.
 - Single-result official eval readiness can now be audited with
   `scripts\audit_official_eval_gate.py`; it returns a non-zero exit code for
   aggregate blockers such as `low_holdout_rate`.
@@ -879,13 +895,15 @@ across task types, not by hand-tuning a single task until it passes.
 
 MIT License.
 
-## 2026-05-17 官方突破进展
+## 2026-05 官方突破进展
 
 - agourlay__zip-password-finder: 首次非 zoxide 任务官方突破，aggregate-only；后续 archive/clap strategy pack 闭环将 ProgramBench info 分数从 26 提升到 36。
 - abishekvashok__cmatrix: 第二个非 zoxide 官方突破，historical adaptive-profile cleanroom-local patch 后 ProgramBench info 分数已提升到 95；仍不是 fully resolved。
-- chmln__sd: 新增非 zoxide 官方 aggregate 强基线，ProgramBench info 分数 86（695/810 counted；raw eval 749/869），本地 holdout 13/14，runtime smoke 覆盖 args/stdin/input_files/default；仍不是 fully resolved。
+- chmln__sd: 新增非 zoxide 官方 aggregate 强基线，ProgramBench info 分数 86（最新 699/810 counted；raw eval 752/869），`baseline_regex_patch1` 本地 holdout 12/12，runtime smoke 覆盖 args/stdin/input_files/default；这是同分计数提升，仍不是 fully resolved。
+- rbakbashev__elfcat: 2026-05-20 使用无外部 LLM 的 file_bridge missing-holdout probe 后复用 package 做官方 eval，将历史低样本 ProgramBench info 分数从 17 提升到 38（215/564 counted；raw eval 288/646）；仍不是 fully resolved。
 - tomnomnom__gron: 使用无外部 LLM 的 file_bridge restoration patch，将官方 ProgramBench info 分数从 26 提升到 62（140/224 counted；raw eval 148/233），本地 exploration 45/45、holdout 13/14、runtime smoke 覆盖 args/stdin/input_files/default；仍不是 fully resolved。
 - mgdm__htmlq: 使用无外部 LLM 的 file_bridge restoration patch，将官方 ProgramBench info 分数从 8 提升到 91（1330/1455 counted；raw eval 1881/2058），本地 exploration 48/49、holdout 14/15、runtime smoke 覆盖 args/stdin/input_files/default；仍不是 fully resolved。
 - ajeetdsouza__zoxide: 官方分数 37（前为 18），aggregate-only。
+- alecthomas__chroma: no-external file_bridge restore_patch2 本地 exploration/holdout 均为 100%，但官方 eval 为 score 0（0/515 counted；raw 0/531），低于历史 score-3 baseline；这是强本地信号未泛化到官方 aggregate 的负证据，不是突破。
 
 当前已沉淀多条官方 aggregate baseline，均只记录 aggregate summary 与 submission hash。后续继续推进更多任务族的稳定泛化与 hidden 全解。

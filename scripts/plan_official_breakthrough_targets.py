@@ -26,6 +26,7 @@ from scripts.summarize_holdout_trends import (  # noqa: E402
     rate_float,
 )
 from scripts.rank_programbench_candidates import (  # noqa: E402
+    discover_baseline_official_ranks as discover_candidate_baseline_official_ranks,
     discover_baseline_task_ids as discover_candidate_baseline_task_ids,
     discover_official_eval_task_ids as discover_candidate_official_eval_task_ids,
     normalize_required_runtime_smoke_dimensions,
@@ -33,6 +34,8 @@ from scripts.rank_programbench_candidates import (  # noqa: E402
     official_gate_reason,
     read_candidate_row,
 )
+
+DEFAULT_MAX_LOCAL_HOLDOUT_GAP = 0.15
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,26 @@ TARGET_CLASS_PRIORITY = {
     "missing_reliable_holdout": 3,
 }
 RUNTIME_SMOKE_DIMENSIONS = ("args", "stdin", "input_files", "env_vars", "default")
+OFFICIAL_GENERALIZATION_GAP_CLASS = "official_generalization_gap"
+OFFICIAL_GENERALIZATION_GAP_ACTION = "repair_local_generalization_before_more_official_eval"
+OFFICIAL_EVAL_FAILURE_CLASS = "official_eval_operational_failure"
+OFFICIAL_EVAL_FAILURE_ACTION = "repair_official_eval_harness_before_more_official_eval"
+LOCAL_GENERALIZATION_GAP_CLASS = "local_generalization_gap"
+LOCAL_GENERALIZATION_GAP_ACTION = "repair_local_generalization_before_official_eval"
+LOCAL_GENERALIZATION_BLOCKERS = {
+    "holdout_not_improved",
+    "holdout_delta_below_min",
+    "holdout_missing_current_holdout",
+    "holdout_too_few_current_holdout_cases",
+    "holdout_no_prior_reliable",
+    "missing_holdout",
+    "too_few_holdout_cases",
+    "low_holdout_rate",
+    "local_holdout_gap_too_high",
+    "runtime_smoke_not_passed",
+    "insufficient_runtime_smoke_dimensions",
+    "insufficient_smoke_contract_axes",
+}
 
 
 def runtime_smoke_dimensions(value: str) -> str:
@@ -145,6 +168,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--baseline-upgrade-max-local-holdout-gap",
+        type=rate_float,
+        default=DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+        help=(
+            "Maximum allowed aggregate gap between local resolved_rate and "
+            "holdout_resolved_rate for baseline-upgrade gate commands"
+        ),
+    )
+    parser.add_argument(
         "--rerun-root",
         default="runs/weak_task_cleanroom_rerun",
         help="Root used when rendering guarded weak-task rerun commands",
@@ -172,9 +204,51 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Optional holdout improvement delta gate to include in guarded weak-task rerun commands",
     )
     parser.add_argument(
+        "--rerun-config",
+        default="",
+        help=(
+            "Optional ReBuilder config path to include in guarded weak-task rerun commands. "
+            "Use a file_bridge or loopback local_openai config for no-external LLM runs."
+        ),
+    )
+    parser.add_argument(
+        "--rerun-ack-local-llm-docker",
+        action="store_true",
+        help=(
+            "Include --ack-local-llm-docker in guarded weak-task rerun commands so a later "
+            "--execute conversion stays on file_bridge or loopback local_openai configs."
+        ),
+    )
+    parser.add_argument(
         "--include-restore-ablation-command",
         action="store_true",
         help="Render guarded restore-axis strategy ablation dry-run commands for restore rows",
+    )
+    parser.add_argument(
+        "--restore-ablation-command-kind",
+        choices=("strategy", "batch"),
+        default="strategy",
+        help=(
+            "Command shape for restore rows. 'strategy' renders the single-task "
+            "strategy-ablation command; 'batch' renders the restore-axis batch "
+            "wrapper so axis-action metadata can be shown before execution."
+        ),
+    )
+    parser.add_argument(
+        "--restore-ablation-show-axis-action",
+        action="store_true",
+        help=(
+            "Include --show-axis-action when rendering restore-axis batch commands. "
+            "Only applies with --restore-ablation-command-kind batch."
+        ),
+    )
+    parser.add_argument(
+        "--restore-ablation-apply-axis-action",
+        action="store_true",
+        help=(
+            "Include --apply-axis-action when rendering restore-axis batch commands, "
+            "so added-axis domains become child adaptive probe exclusions."
+        ),
     )
     parser.add_argument(
         "--restore-ablation-root",
@@ -195,6 +269,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Comma-separated runtime-smoke dimensions to include in guarded "
             "restore-axis ablation commands. Valid values: "
             + ", ".join(RUNTIME_SMOKE_DIMENSIONS)
+        ),
+    )
+    parser.add_argument(
+        "--restore-ablation-max-local-holdout-gap",
+        type=rate_float,
+        default=DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+        help=(
+            "Maximum allowed aggregate gap between local resolved_rate and "
+            "holdout_resolved_rate for restore-axis ablation package gates"
+        ),
+    )
+    parser.add_argument(
+        "--restore-ablation-config",
+        default="",
+        help=(
+            "Optional ReBuilder config path to include in restore-axis ablation commands. "
+            "Use a file_bridge or loopback local_openai config for no-external LLM runs."
+        ),
+    )
+    parser.add_argument(
+        "--restore-ablation-ack-local-llm-docker",
+        action="store_true",
+        help=(
+            "Include --ack-local-llm-docker in restore-axis ablation commands so a later "
+            "--execute conversion stays on file_bridge or loopback local_openai configs."
         ),
     )
     parser.add_argument(
@@ -221,6 +320,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Comma-separated runtime-smoke dimensions to include in missing-holdout "
             "cleanroom rerun commands. Valid values: "
             + ", ".join(RUNTIME_SMOKE_DIMENSIONS)
+        ),
+    )
+    parser.add_argument(
+        "--missing-holdout-config",
+        default="",
+        help=(
+            "Optional ReBuilder config path to include in missing-holdout commands. "
+            "Use a file_bridge or loopback local_openai config for no-external LLM runs."
+        ),
+    )
+    parser.add_argument(
+        "--missing-holdout-ack-local-llm-docker",
+        action="store_true",
+        help=(
+            "Include --ack-local-llm-docker in missing-holdout commands so a later "
+            "--execute conversion stays on file_bridge or loopback local_openai configs."
         ),
     )
     parser.add_argument(
@@ -452,18 +567,29 @@ def write_markdown(
     baseline_upgrade_require_holdout_improvement: bool = False,
     baseline_upgrade_min_holdout_improvement_delta: float = 0.0,
     baseline_upgrade_require_runtime_smoke_dimensions: str = "",
+    baseline_upgrade_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
     rerun_root: str = "runs/weak_task_cleanroom_rerun",
     rerun_min_smoke_contract_axes: int = 0,
     rerun_require_runtime_smoke_dimensions: str = "",
     rerun_min_holdout_improvement_delta: float = 0.0,
+    rerun_config: str = "",
+    rerun_ack_local_llm_docker: bool = False,
     include_restore_ablation_command: bool = False,
+    restore_ablation_command_kind: str = "strategy",
+    restore_ablation_show_axis_action: bool = False,
+    restore_ablation_apply_axis_action: bool = False,
     restore_ablation_root: str = "runs/restore_axis_ablation_next",
     restore_ablation_min_smoke_contract_axes: int = 1,
     restore_ablation_require_runtime_smoke_dimensions: str = "",
+    restore_ablation_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+    restore_ablation_config: str = "",
+    restore_ablation_ack_local_llm_docker: bool = False,
     include_missing_holdout_command: bool = False,
     missing_holdout_rerun_root: str = "runs/missing_holdout_cleanroom_rerun",
     missing_holdout_min_smoke_contract_axes: int = 1,
     missing_holdout_require_runtime_smoke_dimensions: str = "",
+    missing_holdout_config: str = "",
+    missing_holdout_ack_local_llm_docker: bool = False,
 ) -> None:
     selected = rows[: max(0, limit)]
     command_header = " | next command" if include_next_command else ""
@@ -477,7 +603,7 @@ def write_markdown(
         f"{command_rule} |"
     )
     for index, row in enumerate(selected, start=1):
-        baseline_gate_cell = baseline_upgrade_gate_label(
+        baseline_gate = baseline_upgrade_gate_json(
             row,
             runs_root=runs_root,
             baseline_root=baseline_root,
@@ -492,7 +618,9 @@ def write_markdown(
             baseline_upgrade_require_runtime_smoke_dimensions=(
                 baseline_upgrade_require_runtime_smoke_dimensions
             ),
+            baseline_upgrade_max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
         )
+        baseline_gate_cell = baseline_upgrade_gate_label_from_gate(baseline_gate)
         command_cell = ""
         if include_next_command:
             command = build_next_command(
@@ -506,29 +634,44 @@ def write_markdown(
                 baseline_upgrade_require_holdout_improvement=baseline_upgrade_require_holdout_improvement,
                 baseline_upgrade_min_holdout_improvement_delta=baseline_upgrade_min_holdout_improvement_delta,
                 baseline_upgrade_require_runtime_smoke_dimensions=baseline_upgrade_require_runtime_smoke_dimensions,
+                baseline_upgrade_max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
                 rerun_root=rerun_root,
                 rerun_min_smoke_contract_axes=rerun_min_smoke_contract_axes,
                 rerun_require_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
                 rerun_min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
+                rerun_config=rerun_config,
+                rerun_ack_local_llm_docker=rerun_ack_local_llm_docker,
                 include_restore_ablation_command=include_restore_ablation_command,
+                restore_ablation_command_kind=restore_ablation_command_kind,
+                restore_ablation_show_axis_action=restore_ablation_show_axis_action,
+                restore_ablation_apply_axis_action=restore_ablation_apply_axis_action,
                 restore_ablation_root=restore_ablation_root,
                 restore_ablation_min_smoke_contract_axes=restore_ablation_min_smoke_contract_axes,
                 restore_ablation_require_runtime_smoke_dimensions=(
                     restore_ablation_require_runtime_smoke_dimensions
                 ),
+                restore_ablation_max_local_holdout_gap=restore_ablation_max_local_holdout_gap,
+                restore_ablation_config=restore_ablation_config,
+                restore_ablation_ack_local_llm_docker=restore_ablation_ack_local_llm_docker,
                 include_missing_holdout_command=include_missing_holdout_command,
                 missing_holdout_rerun_root=missing_holdout_rerun_root,
                 missing_holdout_min_smoke_contract_axes=missing_holdout_min_smoke_contract_axes,
                 missing_holdout_require_runtime_smoke_dimensions=(
                     missing_holdout_require_runtime_smoke_dimensions
                 ),
+                missing_holdout_config=missing_holdout_config,
+                missing_holdout_ack_local_llm_docker=missing_holdout_ack_local_llm_docker,
+                baseline_upgrade_gate=baseline_gate,
             )
             command_cell = f" | `{command}`" if command else " | -"
+        target_class = planned_target_class(row, baseline_gate)
+        next_action = planned_next_action(row, baseline_gate)
+        reason = planned_reason(row, baseline_gate)
         print(
             f"| {index} | {row.task_id} | {format_official(row)} | "
             f"{format_optional_rate(row.latest_holdout_resolved_rate, row.latest_holdout_cases)} | "
             f"{format_optional_rate(row.best_holdout_resolved_rate, row.best_holdout_cases)} | "
-            f"{row.target_class} | {row.next_action} | {row.reason} | "
+            f"{target_class} | {next_action} | {reason} | "
             f"{baseline_gate_cell} | {format_path(row.latest_result_path)} | "
             f"{format_path(row.best_result_path)}{command_cell} |"
         )
@@ -557,49 +700,30 @@ def breakthrough_target_json_row(
     baseline_upgrade_require_holdout_improvement: bool = False,
     baseline_upgrade_min_holdout_improvement_delta: float = 0.0,
     baseline_upgrade_require_runtime_smoke_dimensions: str = "",
+    baseline_upgrade_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
     rerun_root: str = "runs/weak_task_cleanroom_rerun",
     rerun_min_smoke_contract_axes: int = 0,
     rerun_require_runtime_smoke_dimensions: str = "",
     rerun_min_holdout_improvement_delta: float = 0.0,
+    rerun_config: str = "",
+    rerun_ack_local_llm_docker: bool = False,
     include_restore_ablation_command: bool = False,
+    restore_ablation_command_kind: str = "strategy",
+    restore_ablation_show_axis_action: bool = False,
+    restore_ablation_apply_axis_action: bool = False,
     restore_ablation_root: str = "runs/restore_axis_ablation_next",
     restore_ablation_min_smoke_contract_axes: int = 1,
     restore_ablation_require_runtime_smoke_dimensions: str = "",
+    restore_ablation_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+    restore_ablation_config: str = "",
+    restore_ablation_ack_local_llm_docker: bool = False,
     include_missing_holdout_command: bool = False,
     missing_holdout_rerun_root: str = "runs/missing_holdout_cleanroom_rerun",
     missing_holdout_min_smoke_contract_axes: int = 1,
     missing_holdout_require_runtime_smoke_dimensions: str = "",
+    missing_holdout_config: str = "",
+    missing_holdout_ack_local_llm_docker: bool = False,
 ) -> dict[str, object]:
-    next_command = None
-    if include_next_command:
-        next_command = build_next_command(
-            row,
-            runs_root=runs_root,
-            baseline_root=baseline_root,
-            official_eval_root=official_eval_root,
-            min_holdout_rate=min_holdout_rate,
-            min_holdout_cases=min_holdout_cases,
-            baseline_upgrade_min_smoke_contract_axes=baseline_upgrade_min_smoke_contract_axes,
-            baseline_upgrade_require_holdout_improvement=baseline_upgrade_require_holdout_improvement,
-            baseline_upgrade_min_holdout_improvement_delta=baseline_upgrade_min_holdout_improvement_delta,
-            baseline_upgrade_require_runtime_smoke_dimensions=baseline_upgrade_require_runtime_smoke_dimensions,
-            rerun_root=rerun_root,
-            rerun_min_smoke_contract_axes=rerun_min_smoke_contract_axes,
-            rerun_require_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
-            rerun_min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
-            include_restore_ablation_command=include_restore_ablation_command,
-            restore_ablation_root=restore_ablation_root,
-            restore_ablation_min_smoke_contract_axes=restore_ablation_min_smoke_contract_axes,
-            restore_ablation_require_runtime_smoke_dimensions=(
-                restore_ablation_require_runtime_smoke_dimensions
-            ),
-            include_missing_holdout_command=include_missing_holdout_command,
-            missing_holdout_rerun_root=missing_holdout_rerun_root,
-            missing_holdout_min_smoke_contract_axes=missing_holdout_min_smoke_contract_axes,
-            missing_holdout_require_runtime_smoke_dimensions=(
-                missing_holdout_require_runtime_smoke_dimensions
-            ),
-        )
     baseline_upgrade_gate = baseline_upgrade_gate_json(
         row,
         runs_root=runs_root,
@@ -615,7 +739,50 @@ def breakthrough_target_json_row(
         baseline_upgrade_require_runtime_smoke_dimensions=(
             baseline_upgrade_require_runtime_smoke_dimensions
         ),
+        baseline_upgrade_max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
     )
+    next_command = None
+    if include_next_command:
+        next_command = build_next_command(
+            row,
+            runs_root=runs_root,
+            baseline_root=baseline_root,
+            official_eval_root=official_eval_root,
+            min_holdout_rate=min_holdout_rate,
+            min_holdout_cases=min_holdout_cases,
+            baseline_upgrade_min_smoke_contract_axes=baseline_upgrade_min_smoke_contract_axes,
+            baseline_upgrade_require_holdout_improvement=baseline_upgrade_require_holdout_improvement,
+            baseline_upgrade_min_holdout_improvement_delta=baseline_upgrade_min_holdout_improvement_delta,
+            baseline_upgrade_require_runtime_smoke_dimensions=baseline_upgrade_require_runtime_smoke_dimensions,
+            baseline_upgrade_max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
+            rerun_root=rerun_root,
+            rerun_min_smoke_contract_axes=rerun_min_smoke_contract_axes,
+            rerun_require_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
+            rerun_min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
+            rerun_config=rerun_config,
+            rerun_ack_local_llm_docker=rerun_ack_local_llm_docker,
+            include_restore_ablation_command=include_restore_ablation_command,
+            restore_ablation_command_kind=restore_ablation_command_kind,
+            restore_ablation_show_axis_action=restore_ablation_show_axis_action,
+            restore_ablation_apply_axis_action=restore_ablation_apply_axis_action,
+            restore_ablation_root=restore_ablation_root,
+            restore_ablation_min_smoke_contract_axes=restore_ablation_min_smoke_contract_axes,
+            restore_ablation_require_runtime_smoke_dimensions=(
+                restore_ablation_require_runtime_smoke_dimensions
+            ),
+            restore_ablation_max_local_holdout_gap=restore_ablation_max_local_holdout_gap,
+            restore_ablation_config=restore_ablation_config,
+            restore_ablation_ack_local_llm_docker=restore_ablation_ack_local_llm_docker,
+            include_missing_holdout_command=include_missing_holdout_command,
+            missing_holdout_rerun_root=missing_holdout_rerun_root,
+            missing_holdout_min_smoke_contract_axes=missing_holdout_min_smoke_contract_axes,
+            missing_holdout_require_runtime_smoke_dimensions=(
+                missing_holdout_require_runtime_smoke_dimensions
+            ),
+            missing_holdout_config=missing_holdout_config,
+            missing_holdout_ack_local_llm_docker=missing_holdout_ack_local_llm_docker,
+            baseline_upgrade_gate=baseline_upgrade_gate,
+        )
     return {
         "rank": rank,
         "task_id": row.task_id,
@@ -625,9 +792,9 @@ def breakthrough_target_json_row(
             "passed_tests": row.passed_tests,
             "total_tests": row.total_tests,
         },
-        "target_class": row.target_class,
-        "next_action": row.next_action,
-        "reason": row.reason,
+        "target_class": planned_target_class(row, baseline_upgrade_gate),
+        "next_action": planned_next_action(row, baseline_upgrade_gate),
+        "reason": planned_reason(row, baseline_upgrade_gate),
         "latest_holdout": optional_holdout_json(row.latest_holdout_resolved_rate, row.latest_holdout_cases),
         "best_holdout": optional_holdout_json(row.best_holdout_resolved_rate, row.best_holdout_cases),
         "latest_result_path": format_json_path(row.latest_result_path),
@@ -650,6 +817,7 @@ def baseline_upgrade_gate_label(
     baseline_upgrade_require_holdout_improvement: bool = False,
     baseline_upgrade_min_holdout_improvement_delta: float = 0.0,
     baseline_upgrade_require_runtime_smoke_dimensions: str = "",
+    baseline_upgrade_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
 ) -> str:
     gate = baseline_upgrade_gate_json(
         row,
@@ -664,13 +832,105 @@ def baseline_upgrade_gate_label(
         baseline_upgrade_require_runtime_smoke_dimensions=(
             baseline_upgrade_require_runtime_smoke_dimensions
         ),
+        baseline_upgrade_max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
     )
+    return baseline_upgrade_gate_label_from_gate(gate)
+
+
+def baseline_upgrade_gate_label_from_gate(gate: dict[str, object] | None) -> str:
     if gate is None:
         return "-"
     blockers = gate.get("blockers")
     if isinstance(blockers, list) and blockers:
         return ",".join(str(blocker) for blocker in blockers)
     return str(gate.get("reason") or "-")
+
+
+def gate_blockers(gate: dict[str, object] | None) -> list[str]:
+    if gate is None:
+        return []
+    blockers = gate.get("blockers")
+    if not isinstance(blockers, list):
+        return []
+    return [str(blocker) for blocker in blockers]
+
+
+def is_official_generalization_gap(
+    row: BreakthroughTarget,
+    gate: dict[str, object] | None,
+) -> bool:
+    return (
+        row.target_class == "ready_baseline_gate"
+        and "official_not_above_baseline" in gate_blockers(gate)
+    )
+
+
+def is_official_eval_operational_failure(
+    row: BreakthroughTarget,
+    gate: dict[str, object] | None,
+) -> bool:
+    return (
+        row.target_class == "ready_baseline_gate"
+        and "official_eval_failed_without_eval_json" in gate_blockers(gate)
+    )
+
+
+def local_generalization_blocker(gate: dict[str, object] | None) -> str | None:
+    for blocker in gate_blockers(gate):
+        if blocker in LOCAL_GENERALIZATION_BLOCKERS:
+            return blocker
+    return None
+
+
+def is_local_generalization_gap(
+    row: BreakthroughTarget,
+    gate: dict[str, object] | None,
+) -> bool:
+    return (
+        row.target_class == "ready_baseline_gate"
+        and local_generalization_blocker(gate) is not None
+    )
+
+
+def planned_target_class(
+    row: BreakthroughTarget,
+    gate: dict[str, object] | None,
+) -> str:
+    if is_official_eval_operational_failure(row, gate):
+        return OFFICIAL_EVAL_FAILURE_CLASS
+    if is_official_generalization_gap(row, gate):
+        return OFFICIAL_GENERALIZATION_GAP_CLASS
+    if is_local_generalization_gap(row, gate):
+        return LOCAL_GENERALIZATION_GAP_CLASS
+    return row.target_class
+
+
+def planned_next_action(
+    row: BreakthroughTarget,
+    gate: dict[str, object] | None,
+) -> str:
+    if is_official_eval_operational_failure(row, gate):
+        return OFFICIAL_EVAL_FAILURE_ACTION
+    if is_official_generalization_gap(row, gate):
+        return OFFICIAL_GENERALIZATION_GAP_ACTION
+    if is_local_generalization_gap(row, gate):
+        return LOCAL_GENERALIZATION_GAP_ACTION
+    return row.next_action
+
+
+def planned_reason(
+    row: BreakthroughTarget,
+    gate: dict[str, object] | None,
+) -> str:
+    if is_official_eval_operational_failure(row, gate):
+        return "official_eval_failed_without_eval_json"
+    if is_official_generalization_gap(row, gate):
+        return "official_not_above_baseline"
+    if is_local_generalization_gap(row, gate):
+        blocker = local_generalization_blocker(gate)
+        if blocker is not None:
+            return blocker
+    return row.reason
 
 
 def baseline_upgrade_gate_json(
@@ -685,6 +945,7 @@ def baseline_upgrade_gate_json(
     baseline_upgrade_require_holdout_improvement: bool = False,
     baseline_upgrade_min_holdout_improvement_delta: float = 0.0,
     baseline_upgrade_require_runtime_smoke_dimensions: str = "",
+    baseline_upgrade_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
 ) -> dict[str, object] | None:
     if row.target_class != "ready_baseline_gate":
         return None
@@ -702,14 +963,22 @@ def baseline_upgrade_gate_json(
         "require_holdout_improvement": bool(baseline_upgrade_require_holdout_improvement),
         "min_holdout_improvement_delta": baseline_upgrade_min_holdout_improvement_delta,
         "required_runtime_smoke_dimensions": list(required_runtime_smoke_dimensions),
+        "max_local_holdout_gap": baseline_upgrade_max_local_holdout_gap,
         "candidate": None,
     }
     if row.latest_result_path is None:
         return gate
 
     official_task_ids = discover_candidate_official_eval_task_ids(Path(official_eval_root))
-    official_task_ids.update(discover_candidate_baseline_task_ids(Path(baseline_root)))
-    candidate = read_candidate_row(row.latest_result_path, official_task_ids)
+    baseline_root_path = Path(baseline_root)
+    official_task_ids.update(discover_candidate_baseline_task_ids(baseline_root_path))
+    baseline_ranks = discover_candidate_baseline_official_ranks(baseline_root_path)
+    candidate = read_candidate_row(
+        row.latest_result_path,
+        official_task_ids,
+        baseline_ranks,
+        official_eval_root=official_eval_root,
+    )
     if candidate is None:
         gate.update({"reason": "candidate_unreadable", "blockers": ["candidate_unreadable"]})
         return gate
@@ -723,6 +992,7 @@ def baseline_upgrade_gate_json(
         require_holdout_improvement=baseline_upgrade_require_holdout_improvement,
         holdout_history_root=runs_root,
         min_holdout_improvement_delta=baseline_upgrade_min_holdout_improvement_delta,
+        max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
         allow_existing_official=True,
     )
     reason = official_gate_reason(
@@ -734,6 +1004,7 @@ def baseline_upgrade_gate_json(
         require_holdout_improvement=baseline_upgrade_require_holdout_improvement,
         holdout_history_root=runs_root,
         min_holdout_improvement_delta=baseline_upgrade_min_holdout_improvement_delta,
+        max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
         allow_existing_official=True,
     )
     blocker_list = list(blockers) if isinstance(blockers, list) else [str(blockers)]
@@ -750,6 +1021,12 @@ def baseline_upgrade_gate_json(
                 "runtime_smoke_status": candidate.runtime_smoke_status,
                 "runtime_smoke_input_dimensions": list(candidate.runtime_smoke_input_dimensions),
                 "has_official_eval": candidate.has_official_eval,
+                "official_eval_failure_reason": candidate.official_eval_failure_reason,
+                "official_eval_failure_report_path": (
+                    None
+                    if candidate.official_eval_failure_report_path is None
+                    else str(candidate.official_eval_failure_report_path)
+                ),
                 "result_path": str(candidate.result_path),
             },
         }
@@ -771,18 +1048,29 @@ def breakthrough_targets_json_payload(
     baseline_upgrade_require_holdout_improvement: bool = False,
     baseline_upgrade_min_holdout_improvement_delta: float = 0.0,
     baseline_upgrade_require_runtime_smoke_dimensions: str = "",
+    baseline_upgrade_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
     rerun_root: str = "runs/weak_task_cleanroom_rerun",
     rerun_min_smoke_contract_axes: int = 0,
     rerun_require_runtime_smoke_dimensions: str = "",
     rerun_min_holdout_improvement_delta: float = 0.0,
+    rerun_config: str = "",
+    rerun_ack_local_llm_docker: bool = False,
     include_restore_ablation_command: bool = False,
+    restore_ablation_command_kind: str = "strategy",
+    restore_ablation_show_axis_action: bool = False,
+    restore_ablation_apply_axis_action: bool = False,
     restore_ablation_root: str = "runs/restore_axis_ablation_next",
     restore_ablation_min_smoke_contract_axes: int = 1,
     restore_ablation_require_runtime_smoke_dimensions: str = "",
+    restore_ablation_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+    restore_ablation_config: str = "",
+    restore_ablation_ack_local_llm_docker: bool = False,
     include_missing_holdout_command: bool = False,
     missing_holdout_rerun_root: str = "runs/missing_holdout_cleanroom_rerun",
     missing_holdout_min_smoke_contract_axes: int = 1,
     missing_holdout_require_runtime_smoke_dimensions: str = "",
+    missing_holdout_config: str = "",
+    missing_holdout_ack_local_llm_docker: bool = False,
 ) -> dict[str, object]:
     selected = rows[: max(0, limit)]
     return {
@@ -804,22 +1092,33 @@ def breakthrough_targets_json_payload(
                 baseline_upgrade_require_holdout_improvement=baseline_upgrade_require_holdout_improvement,
                 baseline_upgrade_min_holdout_improvement_delta=baseline_upgrade_min_holdout_improvement_delta,
                 baseline_upgrade_require_runtime_smoke_dimensions=baseline_upgrade_require_runtime_smoke_dimensions,
+                baseline_upgrade_max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
                 rerun_root=rerun_root,
                 rerun_min_smoke_contract_axes=rerun_min_smoke_contract_axes,
                 rerun_require_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
                 rerun_min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
+                rerun_config=rerun_config,
+                rerun_ack_local_llm_docker=rerun_ack_local_llm_docker,
                 include_restore_ablation_command=include_restore_ablation_command,
+                restore_ablation_command_kind=restore_ablation_command_kind,
+                restore_ablation_show_axis_action=restore_ablation_show_axis_action,
+                restore_ablation_apply_axis_action=restore_ablation_apply_axis_action,
                 restore_ablation_root=restore_ablation_root,
                 restore_ablation_min_smoke_contract_axes=restore_ablation_min_smoke_contract_axes,
                 restore_ablation_require_runtime_smoke_dimensions=(
                     restore_ablation_require_runtime_smoke_dimensions
                 ),
+                restore_ablation_max_local_holdout_gap=restore_ablation_max_local_holdout_gap,
+                restore_ablation_config=restore_ablation_config,
+                restore_ablation_ack_local_llm_docker=restore_ablation_ack_local_llm_docker,
                 include_missing_holdout_command=include_missing_holdout_command,
                 missing_holdout_rerun_root=missing_holdout_rerun_root,
                 missing_holdout_min_smoke_contract_axes=missing_holdout_min_smoke_contract_axes,
                 missing_holdout_require_runtime_smoke_dimensions=(
                     missing_holdout_require_runtime_smoke_dimensions
                 ),
+                missing_holdout_config=missing_holdout_config,
+                missing_holdout_ack_local_llm_docker=missing_holdout_ack_local_llm_docker,
             )
             for rank, row in enumerate(selected, start=1)
         ],
@@ -840,18 +1139,29 @@ def write_json(
     baseline_upgrade_require_holdout_improvement: bool = False,
     baseline_upgrade_min_holdout_improvement_delta: float = 0.0,
     baseline_upgrade_require_runtime_smoke_dimensions: str = "",
+    baseline_upgrade_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
     rerun_root: str = "runs/weak_task_cleanroom_rerun",
     rerun_min_smoke_contract_axes: int = 0,
     rerun_require_runtime_smoke_dimensions: str = "",
     rerun_min_holdout_improvement_delta: float = 0.0,
+    rerun_config: str = "",
+    rerun_ack_local_llm_docker: bool = False,
     include_restore_ablation_command: bool = False,
+    restore_ablation_command_kind: str = "strategy",
+    restore_ablation_show_axis_action: bool = False,
+    restore_ablation_apply_axis_action: bool = False,
     restore_ablation_root: str = "runs/restore_axis_ablation_next",
     restore_ablation_min_smoke_contract_axes: int = 1,
     restore_ablation_require_runtime_smoke_dimensions: str = "",
+    restore_ablation_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+    restore_ablation_config: str = "",
+    restore_ablation_ack_local_llm_docker: bool = False,
     include_missing_holdout_command: bool = False,
     missing_holdout_rerun_root: str = "runs/missing_holdout_cleanroom_rerun",
     missing_holdout_min_smoke_contract_axes: int = 1,
     missing_holdout_require_runtime_smoke_dimensions: str = "",
+    missing_holdout_config: str = "",
+    missing_holdout_ack_local_llm_docker: bool = False,
 ) -> None:
     payload = breakthrough_targets_json_payload(
         rows,
@@ -866,22 +1176,33 @@ def write_json(
         baseline_upgrade_require_holdout_improvement=baseline_upgrade_require_holdout_improvement,
         baseline_upgrade_min_holdout_improvement_delta=baseline_upgrade_min_holdout_improvement_delta,
         baseline_upgrade_require_runtime_smoke_dimensions=baseline_upgrade_require_runtime_smoke_dimensions,
+        baseline_upgrade_max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
         rerun_root=rerun_root,
         rerun_min_smoke_contract_axes=rerun_min_smoke_contract_axes,
         rerun_require_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
         rerun_min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
+        rerun_config=rerun_config,
+        rerun_ack_local_llm_docker=rerun_ack_local_llm_docker,
         include_restore_ablation_command=include_restore_ablation_command,
+        restore_ablation_command_kind=restore_ablation_command_kind,
+        restore_ablation_show_axis_action=restore_ablation_show_axis_action,
+        restore_ablation_apply_axis_action=restore_ablation_apply_axis_action,
         restore_ablation_root=restore_ablation_root,
         restore_ablation_min_smoke_contract_axes=restore_ablation_min_smoke_contract_axes,
         restore_ablation_require_runtime_smoke_dimensions=(
             restore_ablation_require_runtime_smoke_dimensions
         ),
+        restore_ablation_max_local_holdout_gap=restore_ablation_max_local_holdout_gap,
+        restore_ablation_config=restore_ablation_config,
+        restore_ablation_ack_local_llm_docker=restore_ablation_ack_local_llm_docker,
         include_missing_holdout_command=include_missing_holdout_command,
         missing_holdout_rerun_root=missing_holdout_rerun_root,
         missing_holdout_min_smoke_contract_axes=missing_holdout_min_smoke_contract_axes,
         missing_holdout_require_runtime_smoke_dimensions=(
             missing_holdout_require_runtime_smoke_dimensions
         ),
+        missing_holdout_config=missing_holdout_config,
+        missing_holdout_ack_local_llm_docker=missing_holdout_ack_local_llm_docker,
     )
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -898,23 +1219,57 @@ def build_next_command(
     baseline_upgrade_require_holdout_improvement: bool = False,
     baseline_upgrade_min_holdout_improvement_delta: float = 0.0,
     baseline_upgrade_require_runtime_smoke_dimensions: str = "",
+    baseline_upgrade_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
     rerun_root: str = "runs/weak_task_cleanroom_rerun",
     rerun_min_smoke_contract_axes: int = 0,
     rerun_require_runtime_smoke_dimensions: str = "",
     rerun_min_holdout_improvement_delta: float = 0.0,
+    rerun_config: str = "",
+    rerun_ack_local_llm_docker: bool = False,
     include_restore_ablation_command: bool = False,
+    restore_ablation_command_kind: str = "strategy",
+    restore_ablation_show_axis_action: bool = False,
+    restore_ablation_apply_axis_action: bool = False,
     restore_ablation_root: str = "runs/restore_axis_ablation_next",
     restore_ablation_min_smoke_contract_axes: int = 1,
     restore_ablation_require_runtime_smoke_dimensions: str = "",
+    restore_ablation_max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+    restore_ablation_config: str = "",
+    restore_ablation_ack_local_llm_docker: bool = False,
     include_missing_holdout_command: bool = False,
     missing_holdout_rerun_root: str = "runs/missing_holdout_cleanroom_rerun",
     missing_holdout_min_smoke_contract_axes: int = 1,
     missing_holdout_require_runtime_smoke_dimensions: str = "",
+    missing_holdout_config: str = "",
+    missing_holdout_ack_local_llm_docker: bool = False,
+    baseline_upgrade_gate: dict[str, object] | None = None,
 ) -> str:
+    if is_official_generalization_gap(row, baseline_upgrade_gate):
+        return build_official_generalization_gap_command(
+            row.task_id,
+            runs_root=runs_root,
+            baseline_root=baseline_root,
+            official_eval_root=official_eval_root,
+            min_holdout_rate=min_holdout_rate,
+            min_holdout_cases=min_holdout_cases,
+            require_runtime_smoke_dimensions=baseline_upgrade_require_runtime_smoke_dimensions,
+        )
+    if is_local_generalization_gap(row, baseline_upgrade_gate):
+        return build_local_generalization_gap_command(
+            row.task_id,
+            runs_root=runs_root,
+            baseline_root=baseline_root,
+            official_eval_root=official_eval_root,
+            min_holdout_rate=min_holdout_rate,
+            min_holdout_cases=min_holdout_cases,
+            max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
+        )
     if row.target_class == "weak_cleanroom_rerun":
         return build_guarded_rerun_command(
             row.task_id,
             rerun_root,
+            config=rerun_config or None,
+            ack_local_llm_docker=rerun_ack_local_llm_docker,
             min_smoke_contract_axes=rerun_min_smoke_contract_axes,
             required_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
             min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
@@ -927,6 +1282,7 @@ def build_next_command(
             f"--baseline-root {quote_shell_arg(Path(baseline_root).as_posix())} "
             f"--min-holdout-rate {min_holdout_rate:g} "
             f"--min-holdout-cases {int(min_holdout_cases)} "
+            f"--max-local-holdout-gap {baseline_upgrade_max_local_holdout_gap:g} "
             "--official-eligible-only --allow-existing-official --latest-per-task "
         )
         if baseline_upgrade_min_smoke_contract_axes > 0:
@@ -954,6 +1310,12 @@ def build_next_command(
             require_runtime_smoke_dimensions=(
                 restore_ablation_require_runtime_smoke_dimensions
             ),
+            max_local_holdout_gap=restore_ablation_max_local_holdout_gap,
+            config=restore_ablation_config,
+            ack_local_llm_docker=restore_ablation_ack_local_llm_docker,
+            command_kind=restore_ablation_command_kind,
+            show_axis_action=restore_ablation_show_axis_action,
+            apply_axis_action=restore_ablation_apply_axis_action,
         )
     if row.target_class == "restore_historical_gate" and row.best_result_path is not None:
         return (
@@ -971,8 +1333,60 @@ def build_next_command(
             missing_holdout_rerun_root,
             min_smoke_contract_axes=missing_holdout_min_smoke_contract_axes,
             require_runtime_smoke_dimensions=missing_holdout_require_runtime_smoke_dimensions,
+            config=missing_holdout_config,
+            ack_local_llm_docker=missing_holdout_ack_local_llm_docker,
         )
     return ""
+
+
+def build_local_generalization_gap_command(
+    task_id: str,
+    *,
+    runs_root: str,
+    baseline_root: str,
+    official_eval_root: str,
+    min_holdout_rate: float,
+    min_holdout_cases: int,
+    max_local_holdout_gap: float,
+) -> str:
+    return (
+        "python scripts/audit_generalization_risk.py "
+        f"--runs {quote_shell_arg(Path(runs_root).as_posix())} "
+        f"--official-eval-root {quote_shell_arg(Path(official_eval_root).as_posix())} "
+        f"--baseline-root {quote_shell_arg(Path(baseline_root).as_posix())} "
+        f"--task {quote_shell_arg(task_id)} "
+        f"--min-holdout-rate {min_holdout_rate:g} "
+        f"--min-holdout-cases {int(min_holdout_cases)} "
+        f"--max-local-holdout-gap {max_local_holdout_gap:g} "
+        "--format json --limit 20"
+    )
+
+
+def build_official_generalization_gap_command(
+    task_id: str,
+    *,
+    runs_root: str,
+    baseline_root: str,
+    official_eval_root: str,
+    min_holdout_rate: float,
+    min_holdout_cases: int,
+    require_runtime_smoke_dimensions: str = "",
+) -> str:
+    command = (
+        "python scripts/audit_official_generalization_gaps.py "
+        f"--runs {quote_shell_arg(Path(runs_root).as_posix())} "
+        f"--official-eval-root {quote_shell_arg(Path(official_eval_root).as_posix())} "
+        f"--baseline-root {quote_shell_arg(Path(baseline_root).as_posix())} "
+        f"--task {quote_shell_arg(task_id)} "
+        f"--min-holdout-rate {min_holdout_rate:g} "
+        f"--min-holdout-cases {int(min_holdout_cases)} "
+    )
+    if require_runtime_smoke_dimensions:
+        command += (
+            "--require-runtime-smoke-dimensions "
+            f"{quote_shell_arg(require_runtime_smoke_dimensions)} "
+        )
+    return command + "--latest-per-task --format json --limit 20"
 
 
 def build_restore_ablation_command(
@@ -983,7 +1397,43 @@ def build_restore_ablation_command(
     baseline_root: str,
     min_smoke_contract_axes: int,
     require_runtime_smoke_dimensions: str = "",
+    max_local_holdout_gap: float = DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+    config: str = "",
+    ack_local_llm_docker: bool = False,
+    command_kind: str = "strategy",
+    show_axis_action: bool = False,
+    apply_axis_action: bool = False,
 ) -> str:
+    if command_kind not in {"strategy", "batch"}:
+        raise ValueError(f"Unsupported restore ablation command kind: {command_kind}")
+
+    if command_kind == "batch":
+        command = (
+            "python scripts/run_restore_axis_ablation_batch.py "
+            f"{quote_shell_arg(task_id)} "
+            f"--runs {quote_shell_arg(Path(runs_root).as_posix())} "
+            f"--baseline-root {quote_shell_arg(Path(baseline_root).as_posix())} "
+            f"--output-root {quote_shell_arg(Path(restore_ablation_root).as_posix())} "
+            "--variants baseline_no_adaptive adaptive_profile adaptive_deep "
+            f"--min-smoke-contract-axes {int(min_smoke_contract_axes)} "
+            "--max-generalization-risk low "
+            f"--max-local-holdout-gap {max_local_holdout_gap:g} "
+        )
+        if require_runtime_smoke_dimensions:
+            command += (
+                "--require-runtime-smoke-dimensions "
+                f"{quote_shell_arg(require_runtime_smoke_dimensions)} "
+            )
+        if config:
+            command += f"--config {quote_shell_arg(config)} "
+        if ack_local_llm_docker:
+            command += "--ack-local-llm-docker "
+        if show_axis_action:
+            command += "--show-axis-action "
+        if apply_axis_action:
+            command += "--apply-axis-action "
+        return command + "--format json --dry-run"
+
     run_root = Path(restore_ablation_root) / safe_path_component(task_id)
     command = (
         "python scripts/run_official_strategy_ablation.py "
@@ -994,6 +1444,7 @@ def build_restore_ablation_command(
         "--require-holdout-improvement "
         f"--holdout-history-root {quote_shell_arg(Path(runs_root).as_posix())} "
         "--max-generalization-risk low "
+        f"--max-local-holdout-gap {max_local_holdout_gap:g} "
         f"--generalization-risk-root {quote_shell_arg(Path(runs_root).as_posix())} "
         f"--baseline-root {quote_shell_arg(Path(baseline_root).as_posix())} "
         f"--min-smoke-contract-axes {int(min_smoke_contract_axes)} "
@@ -1003,6 +1454,10 @@ def build_restore_ablation_command(
             "--require-runtime-smoke-dimensions "
             f"{quote_shell_arg(require_runtime_smoke_dimensions)} "
         )
+    if config:
+        command += f"--config {quote_shell_arg(config)} "
+    if ack_local_llm_docker:
+        command += "--ack-local-llm-docker "
     return command + "--dry-run"
 
 
@@ -1012,13 +1467,17 @@ def build_missing_holdout_command(
     *,
     min_smoke_contract_axes: int,
     require_runtime_smoke_dimensions: str = "",
+    config: str = "",
+    ack_local_llm_docker: bool = False,
 ) -> str:
     run_root = Path(missing_holdout_rerun_root) / safe_path_component(task_id)
     command = (
         "python scripts/run_missing_holdout_cleanroom_rerun.py "
         f"{quote_shell_arg(task_id)} "
-        f"--runs {quote_shell_arg(run_root.as_posix())} "
     )
+    if config:
+        command += f"--config {quote_shell_arg(config)} "
+    command += f"--runs {quote_shell_arg(run_root.as_posix())} "
     if min_smoke_contract_axes > 0:
         command += f"--min-smoke-contract-axes {int(min_smoke_contract_axes)} "
     if require_runtime_smoke_dimensions:
@@ -1026,6 +1485,8 @@ def build_missing_holdout_command(
             "--require-runtime-smoke-dimensions "
             f"{quote_shell_arg(require_runtime_smoke_dimensions)} "
         )
+    if ack_local_llm_docker:
+        command += "--ack-local-llm-docker "
     return command + "--dry-run"
 
 
@@ -1067,22 +1528,33 @@ def main(argv: list[str] | None = None) -> int:
         baseline_upgrade_require_holdout_improvement=args.baseline_upgrade_require_holdout_improvement,
         baseline_upgrade_min_holdout_improvement_delta=args.baseline_upgrade_min_holdout_improvement_delta,
         baseline_upgrade_require_runtime_smoke_dimensions=args.baseline_upgrade_require_runtime_smoke_dimensions,
+        baseline_upgrade_max_local_holdout_gap=args.baseline_upgrade_max_local_holdout_gap,
         rerun_root=args.rerun_root,
         rerun_min_smoke_contract_axes=args.rerun_min_smoke_contract_axes,
         rerun_require_runtime_smoke_dimensions=args.rerun_require_runtime_smoke_dimensions,
         rerun_min_holdout_improvement_delta=args.rerun_min_holdout_improvement_delta,
+        rerun_config=args.rerun_config,
+        rerun_ack_local_llm_docker=args.rerun_ack_local_llm_docker,
         include_restore_ablation_command=args.include_restore_ablation_command,
+        restore_ablation_command_kind=args.restore_ablation_command_kind,
+        restore_ablation_show_axis_action=args.restore_ablation_show_axis_action,
+        restore_ablation_apply_axis_action=args.restore_ablation_apply_axis_action,
         restore_ablation_root=args.restore_ablation_root,
         restore_ablation_min_smoke_contract_axes=args.restore_ablation_min_smoke_contract_axes,
         restore_ablation_require_runtime_smoke_dimensions=(
             args.restore_ablation_require_runtime_smoke_dimensions
         ),
+        restore_ablation_max_local_holdout_gap=args.restore_ablation_max_local_holdout_gap,
+        restore_ablation_config=args.restore_ablation_config,
+        restore_ablation_ack_local_llm_docker=args.restore_ablation_ack_local_llm_docker,
         include_missing_holdout_command=args.include_missing_holdout_command,
         missing_holdout_rerun_root=args.missing_holdout_rerun_root,
         missing_holdout_min_smoke_contract_axes=args.missing_holdout_min_smoke_contract_axes,
         missing_holdout_require_runtime_smoke_dimensions=(
             args.missing_holdout_require_runtime_smoke_dimensions
         ),
+        missing_holdout_config=args.missing_holdout_config,
+        missing_holdout_ack_local_llm_docker=args.missing_holdout_ack_local_llm_docker,
     )
     return 0
 

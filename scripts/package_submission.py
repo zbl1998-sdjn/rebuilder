@@ -17,7 +17,11 @@ from core.submission import (  # noqa: E402
     SubmissionPackager,
     parse_runtime_smoke_dimensions,
 )
-from scripts.audit_generalization_risk import RISK_ORDER, collect_generalization_risks  # noqa: E402
+from scripts.audit_generalization_risk import (  # noqa: E402
+    DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+    RISK_ORDER,
+    collect_generalization_risks,
+)
 from scripts.audit_holdout_improvement import audit_holdout_improvement  # noqa: E402
 
 
@@ -99,6 +103,15 @@ def parse_args() -> argparse.Namespace:
         help="Optional aggregate-only generalization risk ceiling required before packaging",
     )
     parser.add_argument(
+        "--max-local-holdout-gap",
+        type=rate_float,
+        default=DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+        help=(
+            "Maximum allowed aggregate gap between local resolved_rate and "
+            "holdout_resolved_rate for the generalization risk gate"
+        ),
+    )
+    parser.add_argument(
         "--generalization-risk-root",
         default="runs",
         help="Root directory containing historical result.json files for generalization risk checks",
@@ -153,6 +166,7 @@ def main() -> None:
                     official_eval_root=args.official_eval_root,
                     min_holdout_rate=args.min_holdout_rate,
                     min_holdout_cases=args.min_holdout_cases,
+                    max_local_holdout_gap=args.max_local_holdout_gap,
                 )
                 if risk is None:
                     print(
@@ -187,6 +201,7 @@ def find_generalization_risk_for_task(
     official_eval_root: str,
     min_holdout_rate: float,
     min_holdout_cases: int,
+    max_local_holdout_gap: float,
 ):
     for risk in collect_generalization_risks(
         runs_root,
@@ -194,6 +209,7 @@ def find_generalization_risk_for_task(
         official_eval_root=official_eval_root,
         min_holdout_rate=min_holdout_rate,
         min_holdout_cases=min_holdout_cases,
+        max_local_holdout_gap=max_local_holdout_gap,
     ):
         if risk.task_id == task_id:
             return risk

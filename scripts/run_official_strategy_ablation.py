@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from core.submission import parse_runtime_smoke_dimensions  # noqa: E402
+from scripts.audit_generalization_risk import DEFAULT_MAX_LOCAL_HOLDOUT_GAP  # noqa: E402
 from scripts.run_official_closed_loop import is_local_llm_config  # noqa: E402
 
 DEFAULT_VARIANTS = ("baseline_no_adaptive", "adaptive_profile", "adaptive_deep")
@@ -108,6 +109,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=(),
         dest="required_runtime_smoke_dimensions",
     )
+    parser.add_argument(
+        "--adaptive-probe-exclude-domain",
+        action="append",
+        default=[],
+        help=(
+            "Exclude a task-profile domain from deterministic adaptive probes in "
+            "child ReBuilder runs; repeatable."
+        ),
+    )
     parser.add_argument("--require-holdout-improvement", action="store_true")
     parser.add_argument("--min-holdout-improvement-delta", type=non_negative_float, default=0.0)
     parser.add_argument("--holdout-history-root", default="runs")
@@ -119,6 +129,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Additional historical result root to exclude from every variant's improvement audit",
     )
     parser.add_argument("--max-generalization-risk", choices=["low", "medium", "high"], default=None)
+    parser.add_argument(
+        "--max-local-holdout-gap",
+        type=rate_float,
+        default=DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+        help="Maximum local-vs-holdout aggregate gap forwarded to child generalization risk gates",
+    )
     parser.add_argument("--generalization-risk-root", default="runs")
     parser.add_argument("--baseline-root", default="baselines/programbench")
     parser.add_argument("--workers", type=positive_int, default=1)
@@ -223,6 +239,8 @@ def build_closed_loop_command(args: argparse.Namespace, variant: str) -> list[st
         command.append("--ack-external-llm-docker")
     elif args.ack_local_llm_docker:
         command.append("--ack-local-llm-docker")
+    for domain in getattr(args, "adaptive_probe_exclude_domain", []) or []:
+        command.extend(["--adaptive-probe-exclude-domain", str(domain)])
     if args.min_smoke_contract_axes > 0:
         command.extend(["--min-smoke-contract-axes", str(args.min_smoke_contract_axes)])
     if args.required_runtime_smoke_dimensions:
@@ -241,6 +259,8 @@ def build_closed_loop_command(args: argparse.Namespace, variant: str) -> list[st
                 args.generalization_risk_root,
                 "--baseline-root",
                 args.baseline_root,
+                "--max-local-holdout-gap",
+                str(args.max_local_holdout_gap),
             ]
         )
     if args.require_holdout_improvement:

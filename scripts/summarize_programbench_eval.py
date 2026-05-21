@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.evaluation import ProgramBenchEvalParser
+from core.evaluation import ProgramBenchEvalParser  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

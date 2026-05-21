@@ -11,7 +11,7 @@ from typing import List
 from core.data_models import ProgramSpec, ArchitectureBlueprint, ModuleBlueprint, InterfaceSpec
 from core.llm_output import extract_json_object
 from core.prompting.behavior_contracts import behavior_contract_prompt, spec_prompt_json, task_profile_prompt
-from llm_clients.base import BaseLLMClient, Message
+from llm_clients.base import BaseLLMClient
 from llm_clients.options import configured_max_tokens
 from pydantic import ValidationError
 

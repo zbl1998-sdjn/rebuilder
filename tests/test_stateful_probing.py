@@ -1,6 +1,6 @@
 import pytest
 
-from core.data_models import TestCase, TestResult
+from core.data_models import TestResult
 from core.probing.stateful import StatefulProbePlanner, StatefulProbeRunner
 
 

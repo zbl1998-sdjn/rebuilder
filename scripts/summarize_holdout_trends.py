@@ -515,6 +515,7 @@ def build_guarded_rerun_command(
     rerun_root: str,
     *,
     config: str | None = None,
+    ack_local_llm_docker: bool = False,
     min_smoke_contract_axes: int = 0,
     required_runtime_smoke_dimensions: tuple[str, ...] | list[str] | str = (),
     min_holdout_improvement_delta: float = 0.0,
@@ -541,6 +542,8 @@ def build_guarded_rerun_command(
         command += f" --require-runtime-smoke-dimensions {','.join(required_dimensions)}"
     if min_holdout_improvement_delta > 0:
         command += f" --min-holdout-improvement-delta {float(min_holdout_improvement_delta):g}"
+    if ack_local_llm_docker:
+        command += " --ack-local-llm-docker"
     return command
 
 
@@ -561,7 +564,7 @@ def main(argv: list[str] | None = None) -> int:
         min_holdout_cases=args.min_holdout_cases,
         task_ids=args.task_ids,
     )
-    recommendations = None
+    recommendations: list[WeakRerunRecommendation] | None = None
     if args.recommend_weak_reruns:
         recommendations = recommend_weak_reruns(
             rows,
@@ -584,7 +587,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         write_markdown(rows, args.limit)
-    if args.recommend_weak_reruns and args.format == "markdown":
+    if args.recommend_weak_reruns and args.format == "markdown" and recommendations is not None:
         write_recommendations(
             recommendations,
             args.limit,

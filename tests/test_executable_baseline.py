@@ -1,6 +1,3 @@
-import asyncio
-import sys
-
 import pytest
 
 from core.data_models import TestCase

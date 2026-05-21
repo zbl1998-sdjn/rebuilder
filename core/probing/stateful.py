@@ -41,7 +41,7 @@ class StatefulProbePlanner:
                         TestCase(
                             name="stateful_add_alpha",
                             args=["add", "alpha"],
-                            input_files={"alpha/.keep": ""},
+                            input_files={"alpha/.keep": b""},
                             env_vars=env,
                             description="Add an existing directory into a shared state directory",
                         )

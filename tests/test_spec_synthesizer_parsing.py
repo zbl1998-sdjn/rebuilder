@@ -246,6 +246,34 @@ def test_synthesizer_omits_unsafe_input_file_names_from_prompt_and_contracts():
     assert contracts[0].input_file_previews == {"safe/input.txt": "safe prompt\n"}
 
 
+def test_synthesizer_preserves_sparse_input_file_contracts_when_limit_truncates():
+    corpus = [
+        BehaviorSample(
+            test_case=TestCase(name=f"arg_only_{index}", args=[f"--flag-{index}"]),
+            observed_result=TestResult(stdout="ok\n", exit_code=0),
+            tags=["generated"],
+        )
+        for index in range(30)
+    ]
+    corpus.append(
+        BehaviorSample(
+            test_case=TestCase(
+                name="file_contract",
+                args=["input.csv"],
+                input_files={"input.csv": b"name\nAda\n"},
+            ),
+            observed_result=TestResult(stdout="Ada\n", exit_code=0),
+            tags=["file_io", "smoke_contract:csv_table.file_input"],
+        )
+    )
+
+    contracts = SpecSynthesizer(MockLLMClient())._contracts_from_corpus(corpus, limit=24)
+
+    assert len(contracts) == 24
+    assert any(contract.test_name == "file_contract" for contract in contracts)
+    assert any(contract.input_files == {"input.csv": b"name\nAda\n"} for contract in contracts)
+
+
 def test_synthesizer_redacts_unsafe_file_like_args_without_input_files():
     corpus = [
         BehaviorSample(

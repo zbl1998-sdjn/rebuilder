@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import random
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional
+from typing import AsyncGenerator, Awaitable, Callable, Dict, List, Optional, TypedDict
 
 import httpx
 from pydantic import BaseModel, Field
@@ -25,7 +25,12 @@ class LLMResponse(BaseModel):
     finish_reason: str = ""
 
 
-RETRYABLE_HTTPX_EXCEPTIONS: tuple[type[BaseException], ...] = (
+class UsageSummary(TypedDict):
+    by_phase: Dict[str, Dict[str, float]]
+    totals: Dict[str, float]
+
+
+RETRYABLE_HTTPX_EXCEPTIONS: tuple[type[Exception], ...] = (
     httpx.ConnectError,
     httpx.ConnectTimeout,
     httpx.ReadTimeout,
@@ -62,7 +67,7 @@ class BaseLLMClient(ABC):
         pass
     
     @abstractmethod
-    async def chat_stream(
+    def chat_stream(
         self,
         messages: List[Message],
         temperature: Optional[float] = None,
@@ -116,7 +121,7 @@ class BaseLLMClient(ABC):
         self._usage_by_phase = {}
         self._usage_phase = "unspecified"
 
-    def usage_summary(self) -> Dict[str, Dict[str, Dict[str, float]]]:
+    def usage_summary(self) -> UsageSummary:
         by_phase = {
             phase: dict(sorted(values.items()))
             for phase, values in sorted(self._usage_by_phase.items())

@@ -187,17 +187,19 @@ class PythonRuntimeSmokeChecker:
     def _contract_priority(self, contract: BehaviorContract) -> tuple[int, str]:
         tags = set(contract.tags)
         name = contract.test_name.lower()
-        if "error_mode" in tags:
-            return (0, name)
-        if "smoke_contract" in " ".join(tags):
-            return (1, name)
-        if any(arg in {"--help", "-h", "--version", "-V"} for arg in contract.args):
-            return (2, name)
         if contract.input_files and not contract.output_files and not contract.output_file_previews:
-            return (3, name)
+            return (0, name)
+        if "error_mode" in tags:
+            return (1, name)
+        if contract.env_vars:
+            return (2, name)
         if contract.stdin and not self._has_probable_file_arg(contract.args):
+            return (3, name)
+        if "smoke_contract" in " ".join(tags):
             return (4, name)
-        return (5, name)
+        if any(arg in {"--help", "-h", "--version", "-V"} for arg in contract.args):
+            return (5, name)
+        return (6, name)
 
     def _case_from_contract(self, contract: BehaviorContract) -> TestCase | None:
         if not self._is_safe_contract_smoke(contract):

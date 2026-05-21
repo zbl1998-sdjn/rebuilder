@@ -133,7 +133,7 @@ class SubmissionPackager:
         )
         return ranked[0].relative_to(source).as_posix()
 
-    def _entrypoint_rank(self, path: Path) -> tuple[int, str]:
+    def _entrypoint_rank(self, path: Path) -> tuple[int, int, str]:
         name = path.name.lower()
         content = path.read_text(encoding="utf-8", errors="ignore")
         has_main_guard = "__name__" in content and "__main__" in content

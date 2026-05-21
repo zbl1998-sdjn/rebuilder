@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-12T10:52:13.614801+00:00",
+  "recorded_at": "2026-05-20T09:17:00.589750+00:00",
   "instance_id": "wfxr__csview.8ac4de0",
-  "model": "glm-5.1",
-  "config_path": "config/settings.yaml",
-  "notes": "Official closed-loop aggregate baseline: 190/335 counted tests, score 57; raw eval 200/348; aggregate-only.",
+  "model": "codex-file-bridge-csview-axis-ablate-contractfix",
+  "config_path": "output\\file_bridge_manual\\smoke_file_bridge_csview_axis_ablate_contractfix.yaml",
+  "notes": "No-external file_bridge official baseline upgrade: 291/335 counted tests, score 87; raw 303/348, score 87; runtime smoke covered args, stdin, input_files, default.",
   "local": {
-    "status": "failed",
-    "resolved_rate": 0.9230769230769231,
-    "holdout_resolved_rate": 0.9166666666666666,
-    "probes_conducted": 59,
-    "iterations_used": 3
+    "status": "success",
+    "resolved_rate": 1.0,
+    "holdout_resolved_rate": 1.0,
+    "probes_conducted": 47,
+    "iterations_used": 0
   },
   "official": {
-    "passed_tests": 190,
+    "passed_tests": 291,
     "total_tests": 335,
-    "pass_rate": 0.5671641791044776,
-    "score": 57,
+    "pass_rate": 0.8686567164179104,
+    "score": 87,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_official_eval\\submission_csview_min50_20260512\\wfxr__csview.8ac4de0\\submission.tar.gz",
-    "sha256": "f5be7123a94605b2b14d6f577db7d278688316c09ca6ef490721b92b82642a01"
+    "path": "runs\\file_bridge_no_external_csview_20260520_axis_ablate_contractfix_submission\\axis_ablate_contractfix_eval\\wfxr__csview.8ac4de0\\submission.tar.gz",
+    "sha256": "907cb2c25a449c5d0bb7b6bbc65db47183a8052013c98b2ab5b9098293228583"
   }
 }

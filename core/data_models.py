@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -20,6 +20,8 @@ class ProbeStatus(str, Enum):
 
 class TestResult(BaseModel):
     """Result of executing a test case against a program."""
+    __test__: ClassVar[bool] = False
+
     stdout: str = ""
     stderr: str = ""
     exit_code: int = 0
@@ -37,22 +39,16 @@ class TestResult(BaseModel):
             and bool(self.stderr)
         )
 
-
-TestResult.__test__ = False
-
-
 class TestCase(BaseModel):
     """A single test input for probing or differential testing."""
+    __test__: ClassVar[bool] = False
+
     name: str
     args: List[str] = Field(default_factory=list)
     stdin: str = ""
     input_files: Dict[str, bytes] = Field(default_factory=dict)
     env_vars: Dict[str, str] = Field(default_factory=dict)
     description: str = ""
-
-
-TestCase.__test__ = False
-
 
 class BehaviorSample(BaseModel):
     """An observed input-output pair from the original executable."""

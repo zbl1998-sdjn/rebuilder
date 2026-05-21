@@ -195,3 +195,27 @@ def test_subprocess_docker_client_sets_timeout_on_docker_commands(monkeypatch, t
         (["docker", "cp", "container-1:/workspace/.", str(tmp_path / "workspace")], 12),
         (["docker", "rm", "-f", "container-1"], 12),
     ]
+
+
+def test_subprocess_docker_client_reports_docker_command_timeout(monkeypatch):
+    def fake_run(command, text, capture_output, check, timeout):
+        raise subprocess.TimeoutExpired(command, timeout)
+
+    monkeypatch.setattr("core.programbench.adapter.subprocess.run", fake_run)
+
+    client = SubprocessDockerClient(command_timeout=12)
+
+    with pytest.raises(RuntimeError, match="Command timed out after 12s: docker pull"):
+        client.pull_image("programbench/example:task_cleanroom")
+
+
+def test_subprocess_docker_client_reports_inspect_timeout(monkeypatch):
+    def fake_run(command, text, capture_output, check, timeout):
+        raise subprocess.TimeoutExpired(command, timeout)
+
+    monkeypatch.setattr("core.programbench.adapter.subprocess.run", fake_run)
+
+    client = SubprocessDockerClient(command_timeout=12)
+
+    with pytest.raises(RuntimeError, match="Command timed out after 12s: docker image inspect"):
+        client.inspect_image("programbench/example:task_cleanroom")

@@ -104,6 +104,15 @@ def parse_args():
         default="config",
         help="Override probe.adaptive_probes for ablation runs",
     )
+    parser.add_argument(
+        "--adaptive-probe-exclude-domain",
+        action="append",
+        default=[],
+        help=(
+            "Exclude a task-profile domain from deterministic adaptive probes; "
+            "repeatable for restore-axis ablations."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -241,6 +250,7 @@ def build_controller(
         replacement_executor_backend=build_replacement_executor_backend(config, args),
         enable_static_output_assets=static_output_assets,
         enable_adaptive_probes=adaptive_probes,
+        adaptive_probe_exclude_domains=getattr(args, "adaptive_probe_exclude_domain", []),
         differential_concurrency=differential_cfg.get("max_concurrency", 8),
     )
 

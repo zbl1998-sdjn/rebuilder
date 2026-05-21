@@ -12,6 +12,7 @@ from scripts.rank_programbench_candidates import (
     collect_candidates,
     discover_baseline_task_ids,
     format_rate,
+    local_holdout_gap,
     official_gate_blockers,
     official_gate_reason,
     write_markdown,
@@ -28,6 +29,7 @@ def write_result(
     holdout_cases=10,
     probe_axis_coverage=None,
     runtime_smoke=None,
+    official_eval_summary=None,
     secret_marker=None,
 ):
     target = path / task_id / "generated" / task_id
@@ -50,8 +52,66 @@ def write_result(
     if secret_marker:
         payload["holdout_failures"] = [{"name": secret_marker, "expected": "secret"}]
         payload["official_eval"] = {"test_results": [{"name": secret_marker}]}
+    if official_eval_summary is not None:
+        payload["official_eval_summary"] = official_eval_summary
     (target / "result.json").write_text(json.dumps(payload), encoding="utf-8")
     return target / "result.json"
+
+
+def write_baseline(path, task_id, *, score, passed_tests=1, total_tests=10):
+    path.mkdir(parents=True, exist_ok=True)
+    (path / f"{task_id}.baseline.json").write_text(
+        json.dumps(
+            {
+                "instance_id": task_id,
+                "official": {
+                    "score": score,
+                    "passed_tests": passed_tests,
+                    "total_tests": total_tests,
+                    "pass_rate": passed_tests / total_tests,
+                    "fully_resolved": False,
+                    "almost_resolved": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def write_official_eval_failure_report(runs, run_name, task_id, *, reason):
+    report_path = (
+        runs
+        / f"{run_name}_submission"
+        / f"{run_name}_eval"
+        / "official_eval_failure_report.json"
+    )
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "instance_id": task_id,
+                "reason": reason,
+                "timeout_seconds": 12.5,
+                "artifacts": {"eval_json": {"exists": False}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return report_path
+
+
+def official_summary(score, *, passed_tests=2, total_tests=10):
+    return {
+        "counted": {
+            "score": score,
+            "passed_tests": passed_tests,
+            "total_tests": total_tests,
+            "pass_rate": passed_tests / total_tests,
+            "fully_resolved": False,
+            "almost_resolved": False,
+        }
+    }
 
 
 def test_collect_candidates_prioritizes_unofficial_high_holdout(tmp_path):
@@ -176,7 +236,7 @@ def test_collect_candidates_can_filter_to_official_eligible_gate_passes(tmp_path
     assert [row.task_id for row in rows] == ["task.pass"]
 
 
-def test_collect_candidates_can_include_existing_official_for_baseline_upgrade(tmp_path):
+def test_collect_candidates_requires_embedded_official_summary_for_existing_official_upgrade(tmp_path):
     runs = tmp_path / "runs"
     official = tmp_path / "official"
     write_result(runs / "new_candidate", "task.official", 0.9, 0.85, holdout_cases=12)
@@ -191,7 +251,7 @@ def test_collect_candidates_can_include_existing_official_for_baseline_upgrade(t
         min_holdout_rate=0.8,
         min_holdout_cases=10,
     )
-    upgrade_rows = collect_candidates(
+    blocked_rows = collect_candidates(
         runs,
         official,
         official_eligible_only=True,
@@ -201,6 +261,159 @@ def test_collect_candidates_can_include_existing_official_for_baseline_upgrade(t
     )
 
     assert default_rows == []
+    assert blocked_rows == []
+
+    all_rows = collect_candidates(runs, official)
+    assert (
+        official_gate_reason(
+            all_rows[0],
+            allow_existing_official=True,
+            min_holdout_rate=0.8,
+            min_holdout_cases=10,
+        )
+        == "missing_official_candidate_summary"
+    )
+
+
+def test_collect_candidates_surfaces_official_eval_failure_report(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    task_id = "task.official-timeout"
+    report_path = write_official_eval_failure_report(
+        runs,
+        "timed_out_candidate",
+        task_id,
+        reason="official_eval_failed_without_eval_json",
+    )
+    write_result(
+        runs / "timed_out_candidate",
+        task_id,
+        1.0,
+        1.0,
+        holdout_cases=12,
+    )
+
+    [row] = collect_candidates(runs, official)
+
+    assert row.has_official_eval is True
+    assert row.official_eval_failure_reason == "official_eval_failed_without_eval_json"
+    assert row.official_eval_failure_report_path == report_path
+    assert (
+        official_gate_reason(
+            row,
+            allow_existing_official=True,
+            min_holdout_rate=0.8,
+            min_holdout_cases=10,
+        )
+        == "official_eval_failed_without_eval_json"
+    )
+    assert official_gate_blockers(
+        row,
+        allow_existing_official=True,
+        min_holdout_rate=0.8,
+        min_holdout_cases=10,
+    ) == ["official_eval_failed_without_eval_json"]
+
+
+def test_collect_candidates_ignores_stale_official_eval_failure_report(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    task_id = "task.official-timeout"
+    stale_report_path = official / "old_eval" / "official_eval_failure_report.json"
+    stale_report_path.parent.mkdir(parents=True)
+    stale_report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "instance_id": task_id,
+                "reason": "official_eval_failed_without_eval_json",
+                "artifacts": {
+                    "submission_root": {"path": str(official / "old_eval")}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_result(
+        runs / "new_candidate",
+        task_id,
+        1.0,
+        1.0,
+        holdout_cases=12,
+    )
+
+    [row] = collect_candidates(runs, official)
+
+    assert row.has_official_eval is False
+    assert row.official_eval_failure_reason is None
+    assert row.official_eval_failure_report_path is None
+
+
+def test_collect_candidates_routes_invalid_embedded_official_summary_as_failure(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    baselines = tmp_path / "baselines"
+    task_id = "task.official-timeout"
+    write_baseline(baselines, task_id, score=62, passed_tests=62, total_tests=100)
+    write_result(
+        runs / "new_candidate",
+        task_id,
+        1.0,
+        1.0,
+        holdout_cases=12,
+        official_eval_summary={
+            "counted": {
+                "score": 0,
+                "passed_tests": 0,
+                "total_tests": 0,
+                "pass_rate": 0.0,
+                "fully_resolved": False,
+                "almost_resolved": False,
+                "error_code": "invalid_eval_payload",
+            }
+        },
+    )
+
+    [row] = collect_candidates(runs, official, baseline_root=baselines)
+
+    assert row.has_official_eval is True
+    assert row.embedded_official_rank is None
+    assert row.official_eval_failure_reason == "official_eval_failed_without_eval_json"
+    assert row.official_eval_failure_report_path is None
+    assert (
+        official_gate_reason(
+            row,
+            allow_existing_official=True,
+            min_holdout_rate=0.8,
+            min_holdout_cases=10,
+        )
+        == "official_eval_failed_without_eval_json"
+    )
+
+
+def test_collect_candidates_can_include_existing_official_when_candidate_beats_baseline(tmp_path):
+    runs = tmp_path / "runs"
+    baselines = tmp_path / "baselines"
+    write_baseline(baselines, "task.official", score=10, passed_tests=10, total_tests=100)
+    write_result(
+        runs / "new_candidate",
+        "task.official",
+        0.9,
+        0.85,
+        holdout_cases=12,
+        official_eval_summary=official_summary(12, passed_tests=12, total_tests=100),
+    )
+
+    upgrade_rows = collect_candidates(
+        runs,
+        tmp_path / "official",
+        baseline_root=baselines,
+        official_eligible_only=True,
+        allow_existing_official=True,
+        min_holdout_rate=0.8,
+        min_holdout_cases=10,
+    )
+
     assert [row.task_id for row in upgrade_rows] == ["task.official"]
     assert (
         official_gate_reason(
@@ -210,6 +423,42 @@ def test_collect_candidates_can_include_existing_official_for_baseline_upgrade(t
             min_holdout_cases=10,
         )
         == "eligible_baseline_upgrade"
+    )
+
+
+def test_collect_candidates_blocks_existing_official_when_candidate_does_not_beat_baseline(tmp_path):
+    runs = tmp_path / "runs"
+    baselines = tmp_path / "baselines"
+    write_baseline(baselines, "task.official", score=12, passed_tests=12, total_tests=100)
+    write_result(
+        runs / "new_candidate",
+        "task.official",
+        0.9,
+        0.85,
+        holdout_cases=12,
+        official_eval_summary=official_summary(10, passed_tests=10, total_tests=100),
+    )
+
+    upgrade_rows = collect_candidates(
+        runs,
+        tmp_path / "official",
+        baseline_root=baselines,
+        official_eligible_only=True,
+        allow_existing_official=True,
+        min_holdout_rate=0.8,
+        min_holdout_cases=10,
+    )
+    [row] = collect_candidates(runs, tmp_path / "official", baseline_root=baselines)
+
+    assert upgrade_rows == []
+    assert (
+        official_gate_reason(
+            row,
+            allow_existing_official=True,
+            min_holdout_rate=0.8,
+            min_holdout_cases=10,
+        )
+        == "official_not_above_baseline"
     )
 
 
@@ -252,6 +501,8 @@ def test_collect_candidates_rejects_negative_gate_thresholds(tmp_path, threshold
         ({"min_smoke_contract_axes": 1.5}, "min_smoke_contract_axes must be"),
         ({"min_holdout_improvement_delta": -0.01}, "min_holdout_improvement_delta must be non-negative"),
         ({"min_holdout_improvement_delta": math.nan}, "min_holdout_improvement_delta must be non-negative"),
+        ({"max_local_holdout_gap": -0.01}, "max_local_holdout_gap must be"),
+        ({"max_local_holdout_gap": math.nan}, "max_local_holdout_gap must be"),
     ],
 )
 def test_official_gate_reason_rejects_negative_gate_thresholds(tmp_path, threshold_kwargs, message):
@@ -274,6 +525,8 @@ def test_official_gate_reason_rejects_negative_gate_thresholds(tmp_path, thresho
         (("--min-smoke-contract-axes", "-1"), "must be non-negative"),
         (("--min-holdout-improvement-delta", "-0.01"), "must be non-negative"),
         (("--min-holdout-improvement-delta", "nan"), "must be non-negative"),
+        (("--max-local-holdout-gap", "-0.01"), "finite rate between 0 and 1"),
+        (("--max-local-holdout-gap", "nan"), "finite rate between 0 and 1"),
     ],
 )
 def test_rank_programbench_candidates_cli_rejects_negative_gate_thresholds(tmp_path, flag_and_value, message):
@@ -370,6 +623,7 @@ def test_rank_programbench_candidates_cli_outputs_aggregate_only_json(tmp_path):
         "task_id": "task.pass",
         "local_resolved_rate": 0.9,
         "holdout_resolved_rate": 0.85,
+        "local_holdout_gap": 0.050000000000000044,
         "holdout_cases": 12,
         "smoke_contract_axis_count": 2,
         "adaptive_axis_count": 3,
@@ -384,6 +638,8 @@ def test_rank_programbench_candidates_cli_outputs_aggregate_only_json(tmp_path):
         "iterations_used": 1,
         "static_output_assets_enabled": False,
         "has_official_eval": False,
+        "official_eval_failure_reason": None,
+        "official_eval_failure_report_path": None,
         "result_path": str(result_path),
     }
 
@@ -688,6 +944,46 @@ def test_official_gate_blockers_report_multiple_aggregate_reasons(tmp_path):
     )
 
 
+def test_official_gate_blocks_gate_ready_local_holdout_gap(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    write_result(runs / "overfit", "task.overfit", 1.0, 0.82, holdout_cases=12)
+
+    [row] = collect_candidates(runs, official)
+
+    assert local_holdout_gap(row) == pytest.approx(0.18)
+    assert official_gate_blockers(
+        row,
+        min_holdout_rate=0.8,
+        min_holdout_cases=10,
+        max_local_holdout_gap=0.1,
+    ) == ["local_holdout_gap_too_high"]
+    assert (
+        official_gate_reason(
+            row,
+            min_holdout_rate=0.8,
+            min_holdout_cases=10,
+            max_local_holdout_gap=0.1,
+        )
+        == "local_holdout_gap_too_high"
+    )
+
+
+def test_official_gate_does_not_duplicate_low_holdout_with_gap_blocker(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    write_result(runs / "low", "task.low", 1.0, 0.57, holdout_cases=14)
+
+    [row] = collect_candidates(runs, official)
+
+    assert official_gate_blockers(
+        row,
+        min_holdout_rate=0.8,
+        min_holdout_cases=10,
+        max_local_holdout_gap=0.1,
+    ) == ["low_holdout_rate"]
+
+
 def test_collect_candidates_can_filter_to_holdout_improvement_gate_passes(tmp_path):
     runs = tmp_path / "runs"
     official = tmp_path / "official"
@@ -790,7 +1086,7 @@ def test_official_gate_reason_explains_aggregate_blockers(tmp_path):
             min_holdout_rate=0.8,
             min_holdout_cases=10,
         )
-        == "eligible_baseline_upgrade"
+        == "missing_official_candidate_summary"
     )
 
 

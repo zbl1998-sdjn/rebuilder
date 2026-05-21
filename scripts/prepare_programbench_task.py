@@ -7,6 +7,7 @@ copy evaluation images, hidden tests, or test blobs.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -14,11 +15,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.programbench.adapter import DockerCleanroomExporter, ProgramBenchTaskAdapter
-from core.programbench.catalog import load_sample_catalog, select_sample
+from core.programbench.adapter import DockerCleanroomExporter, ProgramBenchTaskAdapter, SubprocessDockerClient  # noqa: E402
+from core.programbench.catalog import load_sample_catalog, select_sample  # noqa: E402
 
 
-def parse_args() -> argparse.Namespace:
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive and finite")
+    return parsed
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare a ProgramBench cleanroom workspace")
     parser.add_argument("instance_id", help="ProgramBench instance id, e.g. owner__repo.abcdef0")
     parser.add_argument(
@@ -37,13 +45,22 @@ def parse_args() -> argparse.Namespace:
         default="/workspace",
         help="Workspace path inside the task_cleanroom image",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--docker-command-timeout-seconds",
+        type=positive_float,
+        default=60.0,
+        help="Timeout for Docker CLI commands during cleanroom preparation",
+    )
+    return parser.parse_args(argv)
 
 
 def main() -> None:
     args = parse_args()
     sample = select_sample(load_sample_catalog(args.catalog), args.instance_id)
-    exporter = DockerCleanroomExporter(image_workspace_path=args.image_workspace)
+    exporter = DockerCleanroomExporter(
+        docker_client=SubprocessDockerClient(command_timeout=args.docker_command_timeout_seconds),
+        image_workspace_path=args.image_workspace,
+    )
     prepared = ProgramBenchTaskAdapter(exporter=exporter).prepare(
         sample=sample,
         run_root=Path(args.runs),

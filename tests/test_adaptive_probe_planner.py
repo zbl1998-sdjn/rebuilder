@@ -106,6 +106,17 @@ def test_csv_table_profile_generates_smoke_contract_probes():
     _assert_safe_relative_input_paths(probes)
 
 
+def test_excluded_domain_suppresses_only_that_adaptive_profile():
+    probes = AdaptiveProbePlanner(excluded_domains=["csv_table"]).plan(
+        {"primary_domain": "csv_table", "domains": ["csv_table", "json_transform"]}
+    )
+
+    descriptions = _axis_descriptions(probes)
+    assert "smoke_contract:csv_table." not in descriptions
+    assert "adaptive_axis:json_transform." in descriptions
+    _assert_safe_relative_input_paths(probes)
+
+
 def test_find_replace_profile_generates_regex_replacement_probes():
     probes = AdaptiveProbePlanner().plan({"primary_domain": "find_replace"})
 
@@ -241,3 +252,19 @@ def test_unknown_profile_does_not_generate_many_generic_probes():
 
     assert len(probes) <= 2
     _assert_safe_relative_input_paths(probes)
+
+
+def test_public_api_keeps_supported_domains_and_optional_context_compatibility():
+    assert "json_transform" in AdaptiveProbePlanner.SUPPORTED_DOMAINS
+
+    profile = {"primary_domain": "json_transform"}
+    baseline = AdaptiveProbePlanner().plan(profile)
+    with_context = AdaptiveProbePlanner().plan(
+        profile,
+        documentation="ignored deterministic planner context",
+        cli_surface={"flags": ["--json"]},
+        corpus=["ignored corpus sample"],
+    )
+
+    assert [probe.name for probe in with_context] == [probe.name for probe in baseline]
+    _assert_safe_relative_input_paths(with_context)

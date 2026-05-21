@@ -18,7 +18,7 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    payloads = []
+    payloads: list[object] = []
     last_timeout = None
 
     def __init__(self, timeout):

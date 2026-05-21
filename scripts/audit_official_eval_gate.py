@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.rank_programbench_candidates import (  # noqa: E402
+    discover_baseline_official_ranks,
     discover_baseline_task_ids,
     discover_official_eval_task_ids,
     normalize_required_runtime_smoke_dimensions,
@@ -139,8 +140,10 @@ def audit_result(
         required_runtime_smoke_dimensions
     )
     official_task_ids = discover_official_eval_task_ids(Path(official_eval_root))
-    official_task_ids.update(discover_baseline_task_ids(Path(baseline_root)))
-    row = read_candidate_row(Path(result_path), official_task_ids)
+    baseline_root_path = Path(baseline_root)
+    official_task_ids.update(discover_baseline_task_ids(baseline_root_path))
+    baseline_ranks = discover_baseline_official_ranks(baseline_root_path)
+    row = read_candidate_row(Path(result_path), official_task_ids, baseline_ranks)
     if row is None:
         return invalid_result_audit(
             Path(result_path),

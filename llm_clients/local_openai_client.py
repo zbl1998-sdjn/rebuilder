@@ -47,7 +47,7 @@ class LocalOpenAIClient(BaseLLMClient):
     ) -> LLMResponse:
         url = f"{self.base_url}/chat/completions"
 
-        payload = {
+        payload: dict[str, object] = {
             "model": self.model,
             "messages": [m.model_dump() for m in messages],
         }
@@ -90,7 +90,7 @@ class LocalOpenAIClient(BaseLLMClient):
     ) -> AsyncGenerator[str, None]:
         url = f"{self.base_url}/chat/completions"
 
-        payload = {
+        payload: dict[str, object] = {
             "model": self.model,
             "messages": [m.model_dump() for m in messages],
             "stream": True,

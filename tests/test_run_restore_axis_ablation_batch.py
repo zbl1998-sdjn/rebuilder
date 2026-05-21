@@ -106,6 +106,7 @@ def test_build_strategy_ablation_command_is_guarded_by_default():
         min_smoke_contract_axes=1,
         required_runtime_smoke_dimensions=("args", "input_files"),
         max_generalization_risk="low",
+        max_local_holdout_gap=0.1,
         execute=False,
         ack_external_llm_docker=False,
         ack_local_llm_docker=False,
@@ -125,6 +126,7 @@ def test_build_strategy_ablation_command_is_guarded_by_default():
     assert "--require-holdout-improvement" in command
     assert command[command.index("--holdout-history-root") + 1] == "runs"
     assert command[command.index("--max-generalization-risk") + 1] == "low"
+    assert command[command.index("--max-local-holdout-gap") + 1] == "0.1"
     assert command[command.index("--generalization-risk-root") + 1] == "runs"
     assert command[command.index("--baseline-root") + 1] == "baselines/programbench"
     assert command[command.index("--min-smoke-contract-axes") + 1] == "1"
@@ -156,6 +158,36 @@ def test_build_strategy_ablation_command_can_forward_local_llm_ack():
     assert "--ack-local-llm-docker" in command
     assert "--ack-external-llm-docker" not in command
     assert "--dry-run" not in command
+
+
+def test_build_strategy_ablation_command_applies_axis_action_domain_exclusion():
+    module = load_module()
+    args = argparse.Namespace(
+        output_root="runs/restore_axis_ablation_next",
+        config="config/smoke_file_bridge.yaml",
+        variants=["adaptive_profile"],
+        runs="runs",
+        baseline_root="baselines/programbench",
+        min_smoke_contract_axes=1,
+        required_runtime_smoke_dimensions=(),
+        max_generalization_risk="low",
+        max_local_holdout_gap=0.15,
+        execute=False,
+        dry_run=True,
+        ack_external_llm_docker=False,
+        ack_local_llm_docker=False,
+        keep_going=False,
+        apply_axis_action=True,
+    )
+    target = module.RestoreBatchTarget(
+        task_id="task.csv",
+        axis_delta_action="ablate_added_axis_domains:csv_table",
+    )
+
+    command = module.build_strategy_ablation_command("task.csv", args, target)
+
+    assert command[command.index("--min-smoke-contract-axes") + 1] == "0"
+    assert command[command.index("--adaptive-probe-exclude-domain") + 1] == "csv_table"
 
 
 def test_main_default_dry_run_prints_without_runner(tmp_path, monkeypatch, capsys):

@@ -102,7 +102,11 @@ class DockerExecutorBackend(ExecutorBackend):
         self.runner = runner or SubprocessDockerRunner()
         self.timeout = timeout
 
-    async def run(self, executable: DockerExecutable, test_case: TestCase) -> TestResult:
+    async def run(
+        self,
+        executable: Path | str | DockerExecutable,
+        test_case: TestCase,
+    ) -> TestResult:
         if not isinstance(executable, DockerExecutable):
             raise TypeError("DockerExecutorBackend requires DockerExecutable")
         if not executable.image.endswith(":task_cleanroom"):

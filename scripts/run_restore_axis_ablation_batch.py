@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.audit_generalization_risk import DEFAULT_MAX_LOCAL_HOLDOUT_GAP  # noqa: E402
 from scripts.audit_restore_targets import collect_restore_target_audits  # noqa: E402
 from scripts.plan_official_breakthrough_targets import (  # noqa: E402
     BreakthroughTarget,
@@ -56,6 +57,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--max-generalization-risk", choices=["low", "medium", "high"], default="low")
     parser.add_argument(
+        "--max-local-holdout-gap",
+        type=rate_float,
+        default=DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+        help="Maximum local-vs-holdout aggregate gap forwarded to strategy ablation commands",
+    )
+    parser.add_argument(
         "--axis-action-domain",
         action="append",
         default=[],
@@ -65,6 +72,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--show-axis-action",
         action="store_true",
         help="Annotate dry-run/execution banners with cleanroom axis actions.",
+    )
+    parser.add_argument(
+        "--apply-axis-action",
+        action="store_true",
+        help=(
+            "Translate cleanroom axis actions into child ReBuilder flags. "
+            "Currently ablate_added_axis_domains excludes those adaptive probe domains "
+            "and relaxes the child smoke-axis floor to 0."
+        ),
     )
     parser.add_argument("--keep-going", action="store_true", help="Continue executing after a target command fails")
     parser.add_argument(
@@ -153,7 +169,7 @@ def select_restore_targets(args: argparse.Namespace) -> list[BreakthroughTarget]
 
 
 def select_restore_batch_targets(args: argparse.Namespace) -> list[RestoreBatchTarget]:
-    if args.axis_action_domain or args.show_axis_action:
+    if args.axis_action_domain or args.show_axis_action or args.apply_axis_action:
         audits = collect_restore_target_audits(
             args.runs,
             args.baseline_root,
@@ -183,7 +199,29 @@ def axis_action_domains(axis_delta_action: str) -> tuple[str, ...]:
     return tuple(domain.strip() for domain in raw_domains.split(",") if domain.strip())
 
 
-def build_strategy_ablation_command(task_id: str, args: argparse.Namespace) -> list[str]:
+def axis_action_exclude_domains(axis_delta_action: str | None) -> tuple[str, ...]:
+    if not axis_delta_action or not axis_delta_action.startswith("ablate_added_axis_domains:"):
+        return ()
+    return axis_action_domains(axis_delta_action)
+
+
+def target_axis_exclude_domains(target: RestoreBatchTarget | None, args: argparse.Namespace) -> tuple[str, ...]:
+    if not getattr(args, "apply_axis_action", False) or target is None:
+        return ()
+    return axis_action_exclude_domains(target.axis_delta_action)
+
+
+def effective_min_smoke_contract_axes(target: RestoreBatchTarget | None, args: argparse.Namespace) -> int:
+    if target_axis_exclude_domains(target, args):
+        return 0
+    return int(args.min_smoke_contract_axes)
+
+
+def build_strategy_ablation_command(
+    task_id: str,
+    args: argparse.Namespace,
+    target: RestoreBatchTarget | None = None,
+) -> list[str]:
     run_root = Path(args.output_root) / safe_path_component(task_id)
     command = [
         sys.executable,
@@ -201,13 +239,17 @@ def build_strategy_ablation_command(task_id: str, args: argparse.Namespace) -> l
         args.runs,
         "--max-generalization-risk",
         args.max_generalization_risk,
+        "--max-local-holdout-gap",
+        str(getattr(args, "max_local_holdout_gap", DEFAULT_MAX_LOCAL_HOLDOUT_GAP)),
         "--generalization-risk-root",
         args.runs,
         "--baseline-root",
         args.baseline_root,
         "--min-smoke-contract-axes",
-        str(args.min_smoke_contract_axes),
+        str(effective_min_smoke_contract_axes(target, args)),
     ]
+    for domain in target_axis_exclude_domains(target, args):
+        command.extend(["--adaptive-probe-exclude-domain", domain])
     if getattr(args, "required_runtime_smoke_dimensions", ()):
         command.extend(
             [
@@ -242,7 +284,9 @@ def restore_batch_json_payload(targets: list[RestoreBatchTarget], args: argparse
                 "rank": rank,
                 "task_id": target.task_id,
                 "axis_delta_action": target.axis_delta_action,
-                "command": build_strategy_ablation_command(target.task_id, args),
+                "applied_axis_exclude_domains": list(target_axis_exclude_domains(target, args)),
+                "effective_min_smoke_contract_axes": effective_min_smoke_contract_axes(target, args),
+                "command": build_strategy_ablation_command(target.task_id, args, target),
             }
         )
     return {
@@ -314,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     exit_code = 0
     for target in targets:
-        command = build_strategy_ablation_command(target.task_id, args)
+        command = build_strategy_ablation_command(target.task_id, args, target)
         if args.dry_run or not args.execute:
             print(format_target_banner("DRY-RUN restore-axis ablation", target), flush=True)
             print(" ".join(command), flush=True)

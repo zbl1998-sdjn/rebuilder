@@ -5,8 +5,9 @@ Differential Tester: Compare original and replacement executable behavior.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import logging
-import random
+import re
 import tempfile
 from collections import OrderedDict
 from pathlib import Path
@@ -16,15 +17,19 @@ from core.data_models import (
     BehaviorSample,
     DiffReport,
     TestCase,
-    TestResult,
 )
 from core.execution.files import UnsafeInputFilePathError, safe_input_file_names
 from core.llm_output import parse_llm_test_cases
-from llm_clients.base import BaseLLMClient, Message
+from llm_clients.base import BaseLLMClient
 from llm_clients.options import configured_max_tokens
 from utils.executable import SandboxExecutor
 
 log = logging.getLogger(__name__)
+
+_GO_LOG_LINE_RE = re.compile(
+    r"^(?P<stamp>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) (?P<body>.+)$"
+)
+_ELAPSED_STATUS_RE = re.compile(r"\(took \d+ ms\)")
 
 
 class DifferentialTester:
@@ -227,9 +232,9 @@ class DifferentialTester:
         # A full implementation would use more sophisticated shrinking
         
         candidates = [
-            TestCase(name=f"shrunk_args", args=[], stdin=base_case.stdin),
-            TestCase(name=f"shrunk_stdin", args=base_case.args, stdin=""),
-            TestCase(name=f"minimal", args=[], stdin=""),
+            TestCase(name="shrunk_args", args=[], stdin=base_case.stdin),
+            TestCase(name="shrunk_stdin", args=base_case.args, stdin=""),
+            TestCase(name="minimal", args=[], stdin=""),
         ]
         
         for candidate in candidates:
@@ -244,7 +249,43 @@ class DifferentialTester:
         # Normalize whitespace and line endings
         a_norm = a.strip().replace("\r\n", "\n")
         b_norm = b.strip().replace("\r\n", "\n")
-        return a_norm == b_norm
+        if a_norm == b_norm:
+            return True
+        if self._elapsed_status_equivalent(a_norm, b_norm):
+            return True
+        return self._go_log_timestamps_equivalent(a_norm, b_norm)
+
+    def _elapsed_status_equivalent(self, a: str, b: str) -> bool:
+        """Ignore volatile millisecond counters in otherwise identical status text."""
+        return _ELAPSED_STATUS_RE.sub("(took <elapsed> ms)", a) == _ELAPSED_STATUS_RE.sub(
+            "(took <elapsed> ms)",
+            b,
+        )
+
+    def _go_log_timestamps_equivalent(self, a: str, b: str) -> bool:
+        """Ignore tiny current-time drift in otherwise identical Go log lines."""
+        a_lines = a.splitlines()
+        b_lines = b.splitlines()
+        if len(a_lines) != len(b_lines):
+            return False
+
+        for a_line, b_line in zip(a_lines, b_lines):
+            if a_line == b_line:
+                continue
+            a_match = _GO_LOG_LINE_RE.match(a_line)
+            b_match = _GO_LOG_LINE_RE.match(b_line)
+            if not a_match or not b_match:
+                return False
+            if a_match.group("body") != b_match.group("body"):
+                return False
+            try:
+                a_stamp = datetime.strptime(a_match.group("stamp"), "%Y/%m/%d %H:%M:%S")
+                b_stamp = datetime.strptime(b_match.group("stamp"), "%Y/%m/%d %H:%M:%S")
+            except ValueError:
+                return False
+            if abs((a_stamp - b_stamp).total_seconds()) > 2:
+                return False
+        return True
     
     def _files_equivalent(
         self,
@@ -255,8 +296,18 @@ class DifferentialTester:
             return False
         for key in orig_files:
             if orig_files[key] != repl_files[key]:
-                return False
+                if not self._text_file_bytes_equivalent(orig_files[key], repl_files[key]):
+                    return False
         return True
+
+    def _text_file_bytes_equivalent(self, a: bytes, b: bytes) -> bool:
+        """Treat CRLF/LF-only drift as equivalent for UTF-8 text file outputs."""
+        try:
+            a_text = a.decode("utf-8")
+            b_text = b.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        return a_text.replace("\r\n", "\n") == b_text.replace("\r\n", "\n")
     
     async def _generate_adversarial_tests(
         self,

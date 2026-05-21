@@ -1,5 +1,6 @@
 import argparse
 import json
+import subprocess
 
 import pytest
 
@@ -9,7 +10,10 @@ from scripts.run_official_closed_loop import (
     build_subprocess_env,
     build_paths,
     build_programbench_eval_command,
+    build_prepare_command,
     build_rebuilder_command,
+    cleanup_programbench_eval_images,
+    cleanup_programbench_eval_containers,
     build_package_command,
     record_strategy_experiment,
     main as _run_closed_loop_main,
@@ -22,6 +26,7 @@ from scripts.run_official_closed_loop import (
     parse_args,
     should_retry_near_miss,
     smoke_contract_axis_count,
+    write_official_summary_to_result,
 )
 
 
@@ -32,6 +37,7 @@ def run_closed_loop_main(argv):
 def args(**overrides):
     defaults = {
         "instance_id": "owner__repo.abcdef0",
+        "catalog": "examples/programbench_samples/samples_full_20260512.json",
         "runs": "runs/closed_loop",
         "config": "config/settings.yaml",
         "probe_iterations": 10,
@@ -51,8 +57,11 @@ def args(**overrides):
         "branch_workers": 1,
         "docker_cpus": 4,
         "branch_retries": 1,
+        "official_eval_timeout_seconds": 0.0,
+        "docker_command_timeout_seconds": 60.0,
         "force": True,
         "adaptive_probes": "config",
+        "adaptive_probe_exclude_domain": [],
         "strategy_registry": "",
         "strategy_variant": "",
         "model": "glm-5.1",
@@ -61,6 +70,7 @@ def args(**overrides):
         "holdout_history_root": "runs",
         "holdout_history_exclude_roots": [],
         "max_generalization_risk": None,
+        "max_local_holdout_gap": 0.15,
         "generalization_risk_root": "runs",
         "baseline_root": "baselines/programbench",
         "official_eval_root": "runs/programbench_official_eval",
@@ -122,6 +132,19 @@ def test_build_rebuilder_command_passes_adaptive_probe_toggle():
     assert command[command.index("--adaptive-probes") + 1] == "enabled"
 
 
+def test_build_rebuilder_command_passes_adaptive_probe_domain_exclusions():
+    parsed = args(adaptive_probe_exclude_domain=["csv_table", "json_transform"])
+    paths = build_paths(parsed.instance_id, parsed.runs, "runs/eval")
+
+    command = build_rebuilder_command(parsed, paths, "programbench/owner_1776_repo.abcdef0:task_cleanroom")
+
+    assert command.count("--adaptive-probe-exclude-domain") == 2
+    first = command.index("--adaptive-probe-exclude-domain")
+    assert command[first + 1] == "csv_table"
+    second = command.index("--adaptive-probe-exclude-domain", first + 1)
+    assert command[second + 1] == "json_transform"
+
+
 def test_build_rebuilder_command_allows_repair_override():
     parsed = args()
     paths = build_paths(parsed.instance_id, parsed.runs, "runs/eval")
@@ -129,6 +152,15 @@ def test_build_rebuilder_command_allows_repair_override():
     command = build_rebuilder_command(parsed, paths, "programbench/owner_1776_repo.abcdef0:task_cleanroom", max_repairs=5)
 
     assert command[command.index("--max-repairs") + 1] == "5"
+
+
+def test_build_prepare_command_passes_docker_command_timeout():
+    parsed = args(pull=True, docker_command_timeout_seconds=180.0)
+
+    command = build_prepare_command(parsed)
+
+    assert "--pull" in command
+    assert command[command.index("--docker-command-timeout-seconds") + 1] == "180.0"
 
 
 def test_parse_args_accepts_holdout_history_exclude_roots():
@@ -185,6 +217,38 @@ def test_run_command_passes_utf8_env(monkeypatch):
     assert seen["env"]["PYTHONIOENCODING"] == "utf-8"
 
 
+def test_run_command_passes_timeout_when_requested(monkeypatch):
+    seen = {}
+
+    def fake_run(command, *, text, check, env, timeout):
+        seen["command"] = command
+        seen["text"] = text
+        seen["check"] = check
+        seen["env"] = env
+        seen["timeout"] = timeout
+        return argparse.Namespace(returncode=0)
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.subprocess.run", fake_run)
+
+    run_command(["py", "-3.14"], timeout_seconds=12.5)
+
+    assert seen["command"] == ["py", "-3.14"]
+    assert seen["text"] is True
+    assert seen["check"] is False
+    assert seen["env"]["PYTHONIOENCODING"] == "utf-8"
+    assert seen["timeout"] == 12.5
+
+
+def test_run_command_reports_timeout(monkeypatch):
+    def fake_run(command, *, text, check, env, timeout):
+        raise subprocess.TimeoutExpired(command, timeout)
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="timed out after 12.5s"):
+        run_command(["py", "-3.14"], timeout_seconds=12.5)
+
+
 def test_run_programbench_eval_continues_when_eval_json_exists(tmp_path, monkeypatch):
     parsed = args()
     paths = build_paths(parsed.instance_id, parsed.runs, tmp_path / "eval", "submission_owner_repo")
@@ -197,6 +261,189 @@ def test_run_programbench_eval_continues_when_eval_json_exists(tmp_path, monkeyp
     monkeypatch.setattr("scripts.run_official_closed_loop.run_command", fake_run_command)
 
     run_programbench_eval(parsed, paths)
+
+
+def test_run_programbench_eval_passes_configured_timeout(monkeypatch):
+    parsed = args(official_eval_timeout_seconds=12.5)
+    paths = build_paths(parsed.instance_id, parsed.runs, "runs/eval", "submission_owner_repo")
+    seen = {}
+
+    def fake_run_command(command, *, timeout_seconds):
+        seen["command"] = command
+        seen["timeout_seconds"] = timeout_seconds
+        paths.eval_json.parent.mkdir(parents=True, exist_ok=True)
+        paths.eval_json.write_text(json.dumps({"test_results": []}), encoding="utf-8")
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.run_command", fake_run_command)
+
+    run_programbench_eval(parsed, paths)
+
+    assert seen["command"] == build_programbench_eval_command(parsed, paths)
+    assert seen["timeout_seconds"] == 12.5
+
+
+def test_run_programbench_eval_cleans_matching_containers_after_success_without_eval_json(
+    tmp_path, monkeypatch
+):
+    parsed = args()
+    paths = build_paths(parsed.instance_id, parsed.runs, tmp_path / "eval", "submission_owner_repo")
+    cleaned = []
+    image_cleaned = []
+
+    def fake_run_command(_command):
+        return None
+
+    def fake_cleanup(instance_id):
+        cleaned.append(instance_id)
+        return ["abc123"]
+
+    def fake_image_cleanup(instance_id):
+        image_cleaned.append(instance_id)
+        return ["programbench-compiled/owner__repo.abcdef0:deadbeef"]
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.run_command", fake_run_command)
+    monkeypatch.setattr("scripts.run_official_closed_loop.cleanup_programbench_eval_containers", fake_cleanup)
+    monkeypatch.setattr("scripts.run_official_closed_loop.cleanup_programbench_eval_images", fake_image_cleanup)
+
+    with pytest.raises(RuntimeError, match="finished without eval JSON"):
+        run_programbench_eval(parsed, paths)
+
+    assert cleaned == [parsed.instance_id]
+    assert image_cleaned == [parsed.instance_id]
+    report = paths.submission_root / "official_eval_failure_report.json"
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["reason"] == "official_eval_failed_without_eval_json"
+    assert "finished without eval JSON" in payload["error"]
+    assert payload["stopped_eval_container_ids"] == ["abc123"]
+    assert payload["removed_compiled_image_refs"] == ["programbench-compiled/owner__repo.abcdef0:deadbeef"]
+    assert payload["artifacts"]["eval_json"]["exists"] is False
+
+
+def test_run_programbench_eval_cleans_matching_containers_after_failed_eval_without_json(
+    tmp_path, monkeypatch
+):
+    parsed = args()
+    paths = build_paths(parsed.instance_id, parsed.runs, tmp_path / "eval", "submission_owner_repo")
+    cleaned = []
+    image_cleaned = []
+
+    def fake_run_command(_command):
+        raise RuntimeError("official eval hung")
+
+    def fake_cleanup(instance_id):
+        cleaned.append(instance_id)
+        return ["abc123"]
+
+    def fake_image_cleanup(instance_id):
+        image_cleaned.append(instance_id)
+        return ["programbench-compiled/owner__repo.abcdef0:deadbeef"]
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.run_command", fake_run_command)
+    monkeypatch.setattr("scripts.run_official_closed_loop.cleanup_programbench_eval_containers", fake_cleanup)
+    monkeypatch.setattr("scripts.run_official_closed_loop.cleanup_programbench_eval_images", fake_image_cleanup)
+
+    with pytest.raises(RuntimeError, match="official eval hung"):
+        run_programbench_eval(parsed, paths)
+
+    assert cleaned == [parsed.instance_id]
+    assert image_cleaned == [parsed.instance_id]
+    report = paths.submission_root / "official_eval_failure_report.json"
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["reason"] == "official_eval_failed_without_eval_json"
+    assert payload["error"] == "official eval hung"
+    assert payload["stopped_eval_container_ids"] == ["abc123"]
+    assert payload["removed_compiled_image_refs"] == ["programbench-compiled/owner__repo.abcdef0:deadbeef"]
+    assert payload["artifacts"]["eval_json"]["exists"] is False
+
+
+def test_cleanup_programbench_eval_containers_stops_only_matching_instance(monkeypatch):
+    calls = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        if command[:2] == ["docker", "ps"]:
+            return argparse.Namespace(
+                returncode=0,
+                stdout=(
+                    "abc123\tprogrambench-compiled/owner__repo.abcdef0:branch\tprogrambench-a\n"
+                    "skip1\tprogrambench-compiled/other__repo.abcdef0:branch\tprogrambench-b\n"
+                    "skip2\tredis:7-alpine\tredis\n"
+                ),
+                stderr="",
+            )
+        return argparse.Namespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.subprocess.run", fake_run)
+
+    stopped = cleanup_programbench_eval_containers("owner__repo.abcdef0")
+
+    assert stopped == ["abc123"]
+    assert calls[-1] == ["docker", "stop", "abc123"]
+
+
+def test_cleanup_programbench_eval_images_removes_only_matching_instance(monkeypatch):
+    calls = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        if command[:3] == ["docker", "image", "ls"]:
+            return argparse.Namespace(
+                returncode=0,
+                stdout=(
+                    "programbench-compiled/owner__repo.abcdef0\tabc123\timg1\n"
+                    "programbench-compiled/owner__repo.abcdef0\tdef456\timg2\n"
+                    "programbench-compiled/other__repo.abcdef0\tzzz999\timg3\n"
+                    "redis\t7-alpine\timg4\n"
+                ),
+                stderr="",
+            )
+        return argparse.Namespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.subprocess.run", fake_run)
+
+    removed = cleanup_programbench_eval_images("owner__repo.abcdef0")
+
+    assert removed == [
+        "programbench-compiled/owner__repo.abcdef0:abc123",
+        "programbench-compiled/owner__repo.abcdef0:def456",
+    ]
+    assert ["docker", "rmi", "-f", "programbench-compiled/owner__repo.abcdef0:abc123"] in calls
+    assert ["docker", "rmi", "-f", "programbench-compiled/owner__repo.abcdef0:def456"] in calls
+    assert ["docker", "rmi", "-f", "programbench-compiled/other__repo.abcdef0:zzz999"] not in calls
+
+
+def test_write_official_summary_to_result_records_counted_aggregate(tmp_path, monkeypatch):
+    result = tmp_path / "result.json"
+    eval_json = tmp_path / "task.eval.json"
+    result.write_text(json.dumps({"task_id": "task.example", "status": "failed"}), encoding="utf-8")
+    eval_json.write_text("{}", encoding="utf-8")
+
+    class FakeSummary:
+        def __init__(self, passed_tests, total_tests, score):
+            self.passed_tests = passed_tests
+            self.total_tests = total_tests
+            self.pass_rate = passed_tests / total_tests
+            self.score = score
+            self.fully_resolved = False
+            self.almost_resolved = False
+            self.error_code = None
+            self.warnings = []
+
+    class FakeParser:
+        def parse(self, _path, instance_id=None):
+            if instance_id is None:
+                return FakeSummary(7, 9, 7 / 9)
+            return FakeSummary(5, 8, 5 / 8)
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.ProgramBenchEvalParser", FakeParser)
+
+    write_official_summary_to_result(result, eval_json, "task.example")
+
+    payload = json.loads(result.read_text(encoding="utf-8"))
+    assert payload["official_eval_summary"]["raw"]["score"] == 78
+    assert payload["official_eval_summary"]["raw"]["passed_tests"] == 7
+    assert payload["official_eval_summary"]["counted"]["score"] == 62
+    assert payload["official_eval_summary"]["counted"]["passed_tests"] == 5
 
 
 def test_run_programbench_eval_raises_without_eval_json(tmp_path, monkeypatch):
@@ -247,6 +494,7 @@ def test_build_package_command_passes_runtime_smoke_dimension_gate_when_required
 def test_build_package_command_passes_generalization_risk_gate_when_required():
     parsed = args(
         max_generalization_risk="low",
+        max_local_holdout_gap=0.1,
         generalization_risk_root="runs/risk-history",
         baseline_root="baselines/programbench",
         official_eval_root="runs/eval",
@@ -259,6 +507,7 @@ def test_build_package_command_passes_generalization_risk_gate_when_required():
     assert command[command.index("--generalization-risk-root") + 1] == "runs/risk-history"
     assert command[command.index("--baseline-root") + 1] == "baselines/programbench"
     assert command[command.index("--official-eval-root") + 1] == "runs/eval"
+    assert command[command.index("--max-local-holdout-gap") + 1] == "0.1"
 
 
 @pytest.mark.parametrize(
@@ -270,6 +519,13 @@ def test_build_package_command_passes_generalization_risk_gate_when_required():
         ("--min-smoke-contract-axes", "-1"),
         ("--min-holdout-improvement-delta", "-0.01"),
         ("--min-holdout-improvement-delta", "nan"),
+        ("--max-local-holdout-gap", "-0.01"),
+        ("--max-local-holdout-gap", "nan"),
+        ("--official-eval-timeout-seconds", "-1"),
+        ("--official-eval-timeout-seconds", "nan"),
+        ("--docker-command-timeout-seconds", "0"),
+        ("--docker-command-timeout-seconds", "-1"),
+        ("--docker-command-timeout-seconds", "nan"),
     ],
 )
 def test_parse_args_rejects_negative_official_gate_thresholds(flag_and_value):

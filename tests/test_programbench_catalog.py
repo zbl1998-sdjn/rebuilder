@@ -4,6 +4,7 @@ import sys
 
 import pytest
 
+from scripts.prepare_programbench_task import parse_args
 from core.programbench.catalog import load_sample_catalog, select_sample
 
 
@@ -103,6 +104,24 @@ def test_load_sample_catalog_rejects_duplicate_instance_ids(tmp_path):
 def test_select_sample_raises_for_unknown_instance():
     with pytest.raises(KeyError, match="missing"):
         select_sample([], "missing")
+
+
+def test_prepare_programbench_task_parse_args_accepts_docker_timeout():
+    parsed = parse_args(
+        [
+            "owner__repo.abcdef0",
+            "--docker-command-timeout-seconds",
+            "180",
+        ]
+    )
+
+    assert parsed.docker_command_timeout_seconds == 180
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan"])
+def test_prepare_programbench_task_parse_args_rejects_invalid_docker_timeout(value):
+    with pytest.raises(SystemExit):
+        parse_args(["owner__repo.abcdef0", "--docker-command-timeout-seconds", value])
 
 
 def test_prepare_programbench_task_script_can_show_help():

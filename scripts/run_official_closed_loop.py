@@ -11,7 +11,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +30,7 @@ from core.experiments import (  # noqa: E402
 from core.programbench.catalog import load_sample_catalog, select_sample  # noqa: E402
 from core.submission import parse_runtime_smoke_dimensions, runtime_smoke_metadata  # noqa: E402
 from llm_clients.factory import load_config  # noqa: E402
+from scripts.audit_generalization_risk import DEFAULT_MAX_LOCAL_HOLDOUT_GAP  # noqa: E402
 from scripts.audit_holdout_improvement import audit_holdout_improvement  # noqa: E402
 
 AssetMode = Literal["config", "enabled", "disabled"]
@@ -72,6 +73,13 @@ def positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive and finite")
     return parsed
 
 
@@ -129,6 +137,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Adaptive task-profile probe mode",
     )
     parser.add_argument(
+        "--adaptive-probe-exclude-domain",
+        action="append",
+        default=[],
+        help=(
+            "Exclude a task-profile domain from deterministic adaptive probes in "
+            "the child ReBuilder run; repeatable."
+        ),
+    )
+    parser.add_argument(
         "--min-holdout-rate",
         type=rate_float,
         default=0.8,
@@ -183,6 +200,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Optional aggregate-only generalization risk ceiling before packaging or official eval",
     )
     parser.add_argument(
+        "--max-local-holdout-gap",
+        type=rate_float,
+        default=DEFAULT_MAX_LOCAL_HOLDOUT_GAP,
+        help=(
+            "Maximum allowed aggregate gap between local resolved_rate and "
+            "holdout_resolved_rate for the generalization risk gate"
+        ),
+    )
+    parser.add_argument(
         "--generalization-risk-root",
         default="runs",
         help="Historical runs root used by --max-generalization-risk",
@@ -203,6 +229,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--branch-workers", type=positive_int, default=1, help="ProgramBench branch workers")
     parser.add_argument("--docker-cpus", type=positive_int, default=4, help="Docker CPUs per ProgramBench eval container")
     parser.add_argument("--branch-retries", type=non_negative_int, default=1, help="ProgramBench branch retries")
+    parser.add_argument(
+        "--official-eval-timeout-seconds",
+        type=non_negative_float,
+        default=0.0,
+        help="Optional ProgramBench eval timeout in seconds; 0 disables the timeout",
+    )
+    parser.add_argument(
+        "--docker-command-timeout-seconds",
+        type=positive_float,
+        default=60.0,
+        help="Timeout for Docker CLI commands during cleanroom preparation",
+    )
     parser.add_argument(
         "--programbench-python",
         default="py",
@@ -323,6 +361,7 @@ def build_prepare_command(args: argparse.Namespace) -> list[str]:
     ]
     if args.pull:
         command.append("--pull")
+    command.extend(["--docker-command-timeout-seconds", str(args.docker_command_timeout_seconds)])
     return command
 
 
@@ -357,12 +396,14 @@ def build_rebuilder_command(
     ]
     if args.static_output_assets != "config":
         command.extend(["--static-output-assets", args.static_output_assets])
+    for domain in getattr(args, "adaptive_probe_exclude_domain", []) or []:
+        command.extend(["--adaptive-probe-exclude-domain", str(domain)])
     return command
 
 
 def build_strategy_candidates(args: argparse.Namespace) -> list[StrategyVariant]:
     """Build safe aggregate-learning strategy variants from run-time knobs."""
-    base_params = {
+    base_params: dict[str, int | float | str | None] = {
         "probe_budget": int(args.probe_iterations),
         "min_samples": int(args.min_probe_samples),
         "max_repair_attempts": int(args.max_repairs),
@@ -416,13 +457,13 @@ def apply_strategy_variant(args: argparse.Namespace, variant: StrategyVariant) -
     if "use_adaptive_probes" in params:
         args.adaptive_probes = "enabled" if params["use_adaptive_probes"] else "disabled"
     if "probe_budget" in params:
-        args.probe_iterations = int(params["probe_budget"])
+        args.probe_iterations = int(cast(Any, params["probe_budget"]))
     elif "max_iterations" in params:
-        args.probe_iterations = int(params["max_iterations"])
+        args.probe_iterations = int(cast(Any, params["max_iterations"]))
     if "min_samples" in params:
-        args.min_probe_samples = int(params["min_samples"])
+        args.min_probe_samples = int(cast(Any, params["min_samples"]))
     if "max_repair_attempts" in params:
-        args.max_repairs = int(params["max_repair_attempts"])
+        args.max_repairs = int(cast(Any, params["max_repair_attempts"]))
     implementation_mode = params.get("implementation_mode")
     if isinstance(implementation_mode, str) and implementation_mode.startswith("static_assets:"):
         value = implementation_mode.partition(":")[2]
@@ -466,6 +507,8 @@ def build_package_command(args: argparse.Namespace, paths: ClosedLoopPaths) -> l
                 str(args.baseline_root),
                 "--official-eval-root",
                 str(args.official_eval_root),
+                "--max-local-holdout-gap",
+                str(args.max_local_holdout_gap),
             ]
         )
     return command
@@ -508,8 +551,10 @@ def load_result(path: Path) -> dict:
 def as_int(value: object) -> int:
     if isinstance(value, bool):
         return 0
+    if value is None:
+        value = 0
     try:
-        parsed = float(value or 0)
+        parsed = float(cast(Any, value))
     except (TypeError, ValueError):
         return 0
     if not math.isfinite(parsed) or parsed < 0 or not parsed.is_integer():
@@ -521,7 +566,7 @@ def as_optional_float(value: object) -> float | None:
     if value is None:
         return None
     try:
-        parsed = float(value)
+        parsed = float(cast(Any, value))
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else None
@@ -562,17 +607,244 @@ def build_subprocess_env() -> dict[str, str]:
     return env
 
 
-def run_command(command: list[str]) -> None:
+def run_command(command: list[str], *, timeout_seconds: float | None = None) -> None:
     print("+ " + " ".join(command), flush=True)
-    result = subprocess.run(command, text=True, check=False, env=build_subprocess_env())
+    try:
+        if timeout_seconds is not None and timeout_seconds > 0:
+            result = subprocess.run(
+                command,
+                text=True,
+                check=False,
+                env=build_subprocess_env(),
+                timeout=timeout_seconds,
+            )
+        else:
+            result = subprocess.run(command, text=True, check=False, env=build_subprocess_env())
+    except subprocess.TimeoutExpired as exc:
+        timeout_text = f"{timeout_seconds:g}" if timeout_seconds is not None else "unknown"
+        raise RuntimeError(f"Command timed out after {timeout_text}s: {' '.join(command)}") from exc
     if result.returncode != 0:
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(command)}")
 
 
-def run_programbench_eval(args: argparse.Namespace, paths: ClosedLoopPaths) -> None:
+def cleanup_programbench_eval_containers(instance_id: str) -> list[str]:
+    """Stop still-running ProgramBench eval containers for the current instance."""
+    image_prefix = f"programbench-compiled/{instance_id}:"
     try:
-        run_command(build_programbench_eval_command(args, paths))
-    except RuntimeError:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.ID}}\t{{.Image}}\t{{.Names}}"],
+            text=True,
+            check=False,
+            env=build_subprocess_env(),
+            capture_output=True,
+        )
+    except OSError as exc:
+        print(f"WARNING: unable to inspect ProgramBench eval containers: {exc}", flush=True)
+        return []
+
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        if stderr:
+            print(f"WARNING: docker ps failed during ProgramBench eval cleanup: {stderr}", flush=True)
+        return []
+
+    stopped: list[str] = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        container_id, image, name = parts
+        if not container_id or not image.startswith(image_prefix) or not name.startswith("programbench-"):
+            continue
+        try:
+            stop_result = subprocess.run(
+                ["docker", "stop", container_id],
+                text=True,
+                check=False,
+                env=build_subprocess_env(),
+                capture_output=True,
+            )
+        except OSError as exc:
+            print(f"WARNING: unable to stop ProgramBench eval container {container_id}: {exc}", flush=True)
+            continue
+        if stop_result.returncode == 0:
+            stopped.append(container_id)
+            continue
+        stderr = (stop_result.stderr or "").strip()
+        detail = f": {stderr}" if stderr else ""
+        print(f"WARNING: docker stop failed for ProgramBench eval container {container_id}{detail}", flush=True)
+
+    if stopped:
+        print(
+            f"Stopped {len(stopped)} ProgramBench eval container(s) for {instance_id}: {', '.join(stopped)}",
+            flush=True,
+        )
+    return stopped
+
+
+def cleanup_programbench_eval_images(instance_id: str) -> list[str]:
+    """Remove temporary ProgramBench compiled images for the current instance."""
+    repository = f"programbench-compiled/{instance_id}"
+    try:
+        result = subprocess.run(
+            ["docker", "image", "ls", "--format", "{{.Repository}}\t{{.Tag}}\t{{.ID}}", repository],
+            text=True,
+            check=False,
+            env=build_subprocess_env(),
+            capture_output=True,
+        )
+    except OSError as exc:
+        print(f"WARNING: unable to inspect ProgramBench compiled images: {exc}", flush=True)
+        return []
+
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        if stderr:
+            print(f"WARNING: docker image ls failed during ProgramBench eval cleanup: {stderr}", flush=True)
+        return []
+
+    removed: list[str] = []
+    seen_refs: set[str] = set()
+    for line in result.stdout.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        image_repository, tag, image_id = parts
+        if image_repository != repository or not tag or tag == "<none>":
+            continue
+        image_ref = f"{image_repository}:{tag}"
+        if image_ref in seen_refs:
+            continue
+        seen_refs.add(image_ref)
+        try:
+            remove_result = subprocess.run(
+                ["docker", "rmi", "-f", image_ref],
+                text=True,
+                check=False,
+                env=build_subprocess_env(),
+                capture_output=True,
+            )
+        except OSError as exc:
+            print(f"WARNING: unable to remove ProgramBench compiled image {image_ref}: {exc}", flush=True)
+            continue
+        if remove_result.returncode == 0:
+            removed.append(image_ref)
+            continue
+        stderr = (remove_result.stderr or "").strip()
+        detail = f": {stderr}" if stderr else ""
+        label = image_id or image_ref
+        print(f"WARNING: docker rmi failed for ProgramBench compiled image {label}{detail}", flush=True)
+
+    if removed:
+        print(
+            f"Removed {len(removed)} ProgramBench compiled image(s) for {instance_id}: {', '.join(removed)}",
+            flush=True,
+        )
+    return removed
+
+
+def file_status(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {"path": str(path), "exists": False}
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        return {"path": str(path), "exists": True, "error": str(exc)}
+    modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+    return {
+        "path": str(path),
+        "exists": True,
+        "kind": "directory" if path.is_dir() else "file",
+        "size_bytes": stat.st_size if path.is_file() else None,
+        "modified_at": modified,
+    }
+
+
+def official_eval_failure_report_path(paths: ClosedLoopPaths) -> Path:
+    return paths.submission_root / "official_eval_failure_report.json"
+
+
+def write_official_eval_failure_report(
+    *,
+    args: argparse.Namespace,
+    paths: ClosedLoopPaths,
+    command: list[str],
+    error: RuntimeError,
+    stopped_containers: list[str],
+    removed_images: list[str],
+) -> Path:
+    """Write aggregate-only operational evidence for official eval failures."""
+    paths.submission_root.mkdir(parents=True, exist_ok=True)
+    report_path = official_eval_failure_report_path(paths)
+    report = {
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "instance_id": args.instance_id,
+        "reason": "official_eval_failed_without_eval_json",
+        "error": str(error),
+        "command": command,
+        "timeout_seconds": getattr(args, "official_eval_timeout_seconds", 0.0),
+        "workers": getattr(args, "workers", None),
+        "branch_workers": getattr(args, "branch_workers", None),
+        "docker_cpus": getattr(args, "docker_cpus", None),
+        "branch_retries": getattr(args, "branch_retries", None),
+        "force": bool(getattr(args, "force", False)),
+        "stopped_eval_container_count": len(stopped_containers),
+        "stopped_eval_container_ids": list(stopped_containers),
+        "removed_compiled_image_count": len(removed_images),
+        "removed_compiled_image_refs": list(removed_images),
+        "artifacts": {
+            "submission_root": file_status(paths.submission_root),
+            "submission": file_status(paths.submission),
+            "eval_json": file_status(paths.eval_json),
+            "official_eval_stdout_log": file_status(paths.submission_root / "official_eval_stdout.log"),
+            "official_eval_stderr_log": file_status(paths.submission_root / "official_eval_stderr.log"),
+        },
+    }
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"official_eval_failure_report={report_path}", flush=True)
+    return report_path
+
+
+def record_official_eval_failure(
+    *,
+    args: argparse.Namespace,
+    paths: ClosedLoopPaths,
+    command: list[str],
+    error: RuntimeError,
+) -> None:
+    stopped_containers: list[str] = []
+    removed_images: list[str] = []
+    try:
+        stopped_containers = cleanup_programbench_eval_containers(args.instance_id)
+    except Exception as cleanup_exc:  # pragma: no cover - defensive cleanup guard
+        print(f"WARNING: ProgramBench eval container cleanup failed: {cleanup_exc}", flush=True)
+    try:
+        removed_images = cleanup_programbench_eval_images(args.instance_id)
+    except Exception as cleanup_exc:  # pragma: no cover - defensive cleanup guard
+        print(f"WARNING: ProgramBench compiled image cleanup failed: {cleanup_exc}", flush=True)
+    try:
+        write_official_eval_failure_report(
+            args=args,
+            paths=paths,
+            command=command,
+            error=error,
+            stopped_containers=stopped_containers,
+            removed_images=removed_images,
+        )
+    except Exception as report_exc:  # pragma: no cover - defensive report guard
+        print(f"WARNING: official eval failure report write failed: {report_exc}", flush=True)
+
+
+def run_programbench_eval(args: argparse.Namespace, paths: ClosedLoopPaths) -> None:
+    command = build_programbench_eval_command(args, paths)
+    try:
+        timeout_seconds = getattr(args, "official_eval_timeout_seconds", 0.0)
+        if timeout_seconds and timeout_seconds > 0:
+            run_command(command, timeout_seconds=timeout_seconds)
+        else:
+            run_command(command)
+    except RuntimeError as exc:
         if paths.eval_json.exists():
             print(
                 f"ProgramBench eval command failed after writing {paths.eval_json}; "
@@ -580,16 +852,57 @@ def run_programbench_eval(args: argparse.Namespace, paths: ClosedLoopPaths) -> N
                 flush=True,
             )
             return
+        record_official_eval_failure(args=args, paths=paths, command=command, error=exc)
         raise
+    if not paths.eval_json.exists():
+        missing_error = RuntimeError(f"ProgramBench eval finished without eval JSON: {paths.eval_json}")
+        record_official_eval_failure(args=args, paths=paths, command=command, error=missing_error)
+        raise missing_error
 
 
 def summarize_eval(eval_json: Path, instance_id: str) -> tuple[int, int, int, int]:
+    if not eval_json.exists():
+        raise FileNotFoundError(f"missing ProgramBench eval JSON: {eval_json}")
     parser = ProgramBenchEvalParser()
     raw = parser.parse(eval_json)
     counted = parser.parse(eval_json, instance_id=instance_id)
     print(f"raw={raw.passed_tests}/{raw.total_tests} score={round(raw.score * 100)}")
     print(f"counted={counted.passed_tests}/{counted.total_tests} score={round(counted.score * 100)}")
     return raw.passed_tests, raw.total_tests, counted.passed_tests, counted.total_tests
+
+
+def official_summary_payload(eval_json: Path, instance_id: str) -> dict[str, object]:
+    parser = ProgramBenchEvalParser()
+    raw = parser.parse(eval_json)
+    counted = parser.parse(eval_json, instance_id=instance_id)
+    return {
+        "raw": aggregate_summary_dict(raw),
+        "counted": aggregate_summary_dict(counted),
+    }
+
+
+def aggregate_summary_dict(summary) -> dict[str, object]:
+    return {
+        "passed_tests": summary.passed_tests,
+        "total_tests": summary.total_tests,
+        "pass_rate": summary.pass_rate,
+        "score": round(summary.score * 100),
+        "fully_resolved": summary.fully_resolved,
+        "almost_resolved": summary.almost_resolved,
+        "error_code": summary.error_code,
+        "warning_count": len(summary.warnings),
+    }
+
+
+def write_official_summary_to_result(result_path: Path, eval_json: Path, instance_id: str) -> None:
+    try:
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(payload, dict):
+        return
+    payload["official_eval_summary"] = official_summary_payload(eval_json, instance_id)
+    result_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def record_baseline(
@@ -751,6 +1064,7 @@ def main(argv: list[str] | None = None) -> None:
 
     run_programbench_eval(args, paths)
     raw_passed, raw_total, counted_passed, counted_total = summarize_eval(paths.eval_json, args.instance_id)
+    write_official_summary_to_result(paths.result, paths.eval_json, args.instance_id)
     baseline_path = record_baseline(
         args=args,
         paths=paths,

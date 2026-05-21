@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-18T01:27:18.659315+00:00",
+  "recorded_at": "2026-05-20T18:02:16.680854+00:00",
   "instance_id": "chmln__sd.87d1ba5",
-  "model": "codex-subagent-file-bridge",
-  "config_path": "config/smoke_file_bridge_subagent_chmln.yaml",
-  "notes": "Official closed-loop aggregate baseline: 697/810 counted tests, score 86; raw eval 750/869; aggregate-only.",
+  "model": "codex-file-bridge-chmln-baseline_regex_patch1",
+  "config_path": "C:\\Users\\Administrator\\Desktop\\ReBuilder\\output\\file_bridge_manual\\smoke_file_bridge_chmln_baseline_regex_patch1.yaml",
+  "notes": "Official closed-loop aggregate baseline: 699/810 counted tests, score 86; raw eval 752/869; aggregate-only.",
   "local": {
-    "status": "partial",
-    "resolved_rate": 0.9591836734693877,
+    "status": "success",
+    "resolved_rate": 1.0,
     "holdout_resolved_rate": 1.0,
-    "probes_conducted": 58,
-    "iterations_used": 1
+    "probes_conducted": 48,
+    "iterations_used": 0
   },
   "official": {
-    "passed_tests": 697,
+    "passed_tests": 699,
     "total_tests": 810,
-    "pass_rate": 0.8604938271604938,
+    "pass_rate": 0.8629629629629629,
     "score": 86,
     "fully_resolved": false,
     "almost_resolved": false,
@@ -23,7 +23,7 @@
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_official_eval_subagent_20260518\\subagent_chmln_20260518\\chmln__sd.87d1ba5\\submission.tar.gz",
-    "sha256": "62299bd7c24f8388a6382b4ad80cfe3cd2db5e1f1fd7d4f3a7d98195c8f8064d"
+    "path": "runs\\programbench_official_eval\\submission_chmln_baseline_regex_patch1_20260521\\chmln__sd.87d1ba5\\submission.tar.gz",
+    "sha256": "b118ccda392a18efe2654a4942f9e488a37abb7022f799d3bcd1c2f4e45c8857"
   }
 }

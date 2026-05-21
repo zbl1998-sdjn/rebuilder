@@ -114,6 +114,98 @@ def test_differential_tester_parses_embedded_test_case_json():
     assert cases[0].args == ["--help"]
 
 
+def test_differential_tester_parses_json_safe_bytes_input_files():
+    tester = DifferentialTester(original="orig", replacement="repl")
+
+    raw = """
+[{
+  "name": "binary_fixture",
+  "args": ["sample.bin"],
+  "input_files": {
+    "sample.bin": {"__type__": "bytes", "base64": "AP8B"}
+  }
+}]
+"""
+
+    cases = tester._parse_test_cases(raw)
+
+    assert len(cases) == 1
+    assert cases[0].input_files == {"sample.bin": b"\x00\xff\x01"}
+
+
+def test_differential_tester_filters_unmaterializable_directory_input_files():
+    tester = DifferentialTester(original="orig", replacement="repl")
+
+    raw = """
+[{
+  "name": "mixed_fixture",
+  "input_files": {
+    "CHANGELOG.previous.md": {"__type__": "directory"},
+    "keep.txt": "alpha\\n"
+  }
+}]
+"""
+
+    cases = tester._parse_test_cases(raw)
+
+    assert len(cases) == 1
+    assert cases[0].input_files == {"keep.txt": b"alpha\n"}
+
+
+def test_differential_tester_allows_tiny_go_log_timestamp_drift():
+    tester = DifferentialTester(original="orig", replacement="repl")
+
+    assert tester._streams_equivalent(
+        "2026/05/19 20:52:12 invalid character '\\x00' looking for beginning of value\n",
+        "2026/05/19 20:52:11 invalid character '\\x00' looking for beginning of value\n",
+    )
+
+
+def test_differential_tester_keeps_go_log_message_strict():
+    tester = DifferentialTester(original="orig", replacement="repl")
+
+    assert not tester._streams_equivalent(
+        "2026/05/19 20:52:12 invalid character '\\x00' looking for beginning of value\n",
+        "2026/05/19 20:52:11 invalid character 'x' looking for beginning of value\n",
+    )
+
+
+def test_differential_tester_allows_elapsed_status_drift():
+    tester = DifferentialTester(original="orig", replacement="repl")
+
+    assert tester._streams_equivalent(
+        "<a name=\"1.0.0\"></a>\n## 1.0.0  (2026-05-19)\n\nchangelog written. (took 4 ms)\n",
+        "<a name=\"1.0.0\"></a>\n## 1.0.0  (2026-05-19)\n\nchangelog written. (took 11 ms)\n",
+    )
+
+
+def test_differential_tester_keeps_elapsed_status_text_strict():
+    tester = DifferentialTester(original="orig", replacement="repl")
+
+    assert not tester._streams_equivalent(
+        "changelog written. (took 4 ms)\n",
+        "changelog saved. (took 4 ms)\n",
+    )
+
+
+def test_differential_tester_allows_text_file_line_ending_drift():
+    tester = DifferentialTester(original="orig", replacement="repl")
+
+    assert tester._files_equivalent(
+        {"CHANGELOG.md": b"<a name=\"1.0.0\"></a>\n\n"},
+        {"CHANGELOG.md": b"<a name=\"1.0.0\"></a>\r\n\r\n"},
+    )
+
+
+def test_differential_tester_keeps_binary_file_outputs_strict():
+    tester = DifferentialTester(original="orig", replacement="repl")
+
+    assert not tester._files_equivalent(
+        {"out.bin": b"\xff\r\n"},
+        {"out.bin": b"\xff\n"},
+    )
+
+
 class RaisingLLM:
     def system_prompt(self, content):
         return content

@@ -16,6 +16,7 @@ def write_result(
     holdout_cases=12,
     smoke_axes=None,
     runtime_smoke=None,
+    official_eval_summary=None,
 ):
     metadata = {}
     if smoke_axes is not None:
@@ -23,22 +24,53 @@ def write_result(
     if runtime_smoke is not None:
         metadata["runtime_smoke"] = runtime_smoke
     path.parent.mkdir(parents=True)
-    path.write_text(
+    payload = {
+        "task_id": task_id,
+        "status": "failed",
+        "resolved_rate": 0.9,
+        "holdout_resolved_rate": holdout_rate,
+        "holdout_cases": holdout_cases,
+        "probes_conducted": 50,
+        "iterations_used": 3,
+        "implementation_metadata": metadata,
+    }
+    if official_eval_summary is not None:
+        payload["official_eval_summary"] = official_eval_summary
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def write_baseline(path, task_id, *, score, passed_tests=1, total_tests=10):
+    path.mkdir(parents=True, exist_ok=True)
+    (path / f"{task_id}.baseline.json").write_text(
         json.dumps(
             {
-                "task_id": task_id,
-                "status": "failed",
-                "resolved_rate": 0.9,
-                "holdout_resolved_rate": holdout_rate,
-                "holdout_cases": holdout_cases,
-                "probes_conducted": 50,
-                "iterations_used": 3,
-                "implementation_metadata": metadata,
+                "instance_id": task_id,
+                "official": {
+                    "score": score,
+                    "passed_tests": passed_tests,
+                    "total_tests": total_tests,
+                    "pass_rate": passed_tests / total_tests,
+                    "fully_resolved": False,
+                    "almost_resolved": False,
+                },
             }
         ),
         encoding="utf-8",
     )
-    return path
+
+
+def official_summary(score, *, passed_tests=2, total_tests=10):
+    return {
+        "counted": {
+            "score": score,
+            "passed_tests": passed_tests,
+            "total_tests": total_tests,
+            "pass_rate": passed_tests / total_tests,
+            "fully_resolved": False,
+            "almost_resolved": False,
+        }
+    }
 
 
 def test_audit_result_accepts_aggregate_holdout_gate_pass(tmp_path):
@@ -78,7 +110,12 @@ def test_audit_result_blocks_already_official_task(tmp_path):
 
 
 def test_audit_result_can_allow_existing_official_baseline_upgrade(tmp_path):
-    result_path = write_result(tmp_path / "runs" / "task.done" / "result.json", task_id="task.done")
+    write_baseline(tmp_path / "baselines", "task.done", score=10, passed_tests=10, total_tests=100)
+    result_path = write_result(
+        tmp_path / "runs" / "task.done" / "result.json",
+        task_id="task.done",
+        official_eval_summary=official_summary(12, passed_tests=12, total_tests=100),
+    )
     eval_dir = tmp_path / "official" / "submission" / "task.done"
     eval_dir.mkdir(parents=True)
     (eval_dir / "task.done.eval.json").write_text("{}", encoding="utf-8")
@@ -94,6 +131,28 @@ def test_audit_result_can_allow_existing_official_baseline_upgrade(tmp_path):
 
     assert audit["eligible"] is True
     assert audit["reason"] == "eligible_baseline_upgrade"
+    assert audit["has_official_eval"] is True
+
+
+def test_audit_result_blocks_existing_official_when_candidate_does_not_beat_baseline(tmp_path):
+    write_baseline(tmp_path / "baselines", "task.done", score=12, passed_tests=12, total_tests=100)
+    result_path = write_result(
+        tmp_path / "runs" / "task.done" / "result.json",
+        task_id="task.done",
+        official_eval_summary=official_summary(10, passed_tests=10, total_tests=100),
+    )
+
+    audit = audit_result(
+        result_path,
+        official_eval_root=tmp_path / "official",
+        baseline_root=tmp_path / "baselines",
+        allow_existing_official=True,
+        min_holdout_rate=0.8,
+        min_holdout_cases=10,
+    )
+
+    assert audit["eligible"] is False
+    assert audit["reason"] == "official_not_above_baseline"
     assert audit["has_official_eval"] is True
 
 

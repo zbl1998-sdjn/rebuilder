@@ -7,7 +7,7 @@ import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -81,9 +81,11 @@ class MiniLabResultCollector:
         implementation_metadata = payload.get("implementation_metadata", {}) or {}
         if not isinstance(implementation_metadata, dict):
             implementation_metadata = {}
+        task_id = payload.get("task_id")
+        status = payload.get("status")
         return MiniLabRow(
-            task_id=payload.get("task_id", instance_id),
-            status=payload.get("status", "unknown"),
+            task_id=task_id if isinstance(task_id, str) else instance_id,
+            status=status if isinstance(status, str) else "unknown",
             resolved_rate=self._as_float(payload.get("resolved_rate")),
             holdout_resolved_rate=self._as_optional_float(payload.get("holdout_resolved_rate")),
             probes_conducted=self._as_int(payload.get("probes_conducted")),
@@ -106,8 +108,10 @@ class MiniLabResultCollector:
         return payload
 
     def _as_float(self, value: object) -> float:
+        if value is None:
+            value = 0.0
         try:
-            parsed = float(value or 0.0)
+            parsed = float(cast(Any, value))
         except (TypeError, ValueError):
             return 0.0
         return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else 0.0
@@ -116,7 +120,7 @@ class MiniLabResultCollector:
         if value is None:
             return None
         try:
-            parsed = float(value)
+            parsed = float(cast(Any, value))
         except (TypeError, ValueError):
             return None
         return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else None
@@ -124,8 +128,10 @@ class MiniLabResultCollector:
     def _as_int(self, value: object) -> int:
         if isinstance(value, bool):
             return 0
+        if value is None:
+            value = 0
         try:
-            parsed = float(value or 0)
+            parsed = float(cast(Any, value))
         except (TypeError, ValueError):
             return 0
         if not math.isfinite(parsed) or parsed < 0 or not parsed.is_integer():

@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-17T15:13:58.660814+00:00",
+  "recorded_at": "2026-05-20T01:20:10.874756+00:00",
   "instance_id": "clog-tool__clog-cli.7066cba",
-  "model": "codex-file-bridge-clog-from_latest_patch4",
-  "config_path": "output/file_bridge_manual/smoke_file_bridge_clog_from_latest_patch4.yaml",
-  "notes": "No-external-LLM file_bridge official aggregate breakthrough: 257/575 counted tests, score 45; raw eval 391/778; aggregate-only. Improves prior clog-cli baseline 236/575 score 41.",
+  "model": "codex-file-bridge-clog-from_latest_patch5",
+  "config_path": "output\\file_bridge_manual\\smoke_file_bridge_clog_from_latest_patch5.yaml",
+  "notes": "No-external-LLM file_bridge official aggregate refinement: 260/575 counted tests, score 45; raw eval 394/778 score 51; aggregate-only. Improves counted tests over prior clog-cli score-45 baseline 257/575, but does not improve rounded official score.",
   "local": {
-    "status": "failed",
-    "resolved_rate": 0.9339622641509434,
-    "holdout_resolved_rate": 0.8125,
+    "status": "success",
+    "resolved_rate": 0.9905660377358491,
+    "holdout_resolved_rate": 0.9375,
     "probes_conducted": 66,
     "iterations_used": 0
   },
   "official": {
-    "passed_tests": 257,
+    "passed_tests": 260,
     "total_tests": 575,
-    "pass_rate": 0.4469565217391304,
+    "pass_rate": 0.45217391304347826,
     "score": 45,
     "fully_resolved": false,
     "almost_resolved": false,
@@ -23,7 +23,7 @@
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\file_bridge_no_external_clog_20260518_from_latest_patch4_submission\\file_bridge_no_external_clog_20260518_from_latest_patch4_eval\\clog-tool__clog-cli.7066cba\\submission.tar.gz",
-    "sha256": "4e82fde49072068e592308bb812c839ef9efb91fe8c2fb2fea958d3b34284dfa"
+    "path": "runs\\programbench_official_eval\\submission_clog_patch5_20260520\\clog-tool__clog-cli.7066cba\\submission.tar.gz",
+    "sha256": "ab2011ab685708df8fa9b280a880bc9b191ac472f782faa2ed5661ed2df62bac"
   }
 }

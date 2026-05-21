@@ -546,7 +546,7 @@ class RuntimeCrashImplementerLLM(BaseLLMClient):
     def __init__(self):
         super().__init__("fake-key", "http://fake", "mock-model")
         self.calls = 0
-        self.messages = []
+        self.messages: list[object] = []
 
     async def chat(self, messages, temperature=None, max_tokens=None, **kwargs):
         self.calls += 1
@@ -595,7 +595,7 @@ class TruncatedSyntaxImplementerLLM(BaseLLMClient):
     def __init__(self):
         super().__init__("fake-key", "http://fake", "mock-model")
         self.calls = 0
-        self.messages = []
+        self.messages: list[object] = []
 
     async def chat(self, messages, temperature=None, max_tokens=None, **kwargs):
         self.calls += 1
@@ -852,7 +852,7 @@ class StagedImplementerLLM(BaseLLMClient):
     def __init__(self, second_response: str | None = None):
         super().__init__("fake-key", "http://fake", "mock-model")
         self.calls = 0
-        self.messages = []
+        self.messages: list[object] = []
         self.second_response = second_response or json.dumps(
             {
                 "files": [

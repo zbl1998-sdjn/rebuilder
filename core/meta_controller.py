@@ -34,8 +34,8 @@ from core.implementer_agent import ImplementerAgent
 from core.differential_tester import DifferentialTester
 from core.evidence import EvidenceStore
 from core.evaluation import FailureReportWriter
-from core.coverage import BehavioralCoverageAnalyzer
-from core.repair.clustering import FailureClusterer
+from core.coverage import BehavioralCoverageAnalyzer, BehavioralCoverageReport
+from core.repair.clustering import ClusterKey, FailureClusterer
 from core.repair_loop import RepairLoop
 from core.session import RunSession
 from llm_clients.base import BaseLLMClient
@@ -72,6 +72,7 @@ class MetaController:
         replacement_executor_backend=None,
         enable_static_output_assets: bool = True,
         enable_adaptive_probes: bool = True,
+        adaptive_probe_exclude_domains: list[str] | tuple[str, ...] | None = None,
         differential_concurrency: int = 8,
     ):
         self.llm = llm_client
@@ -94,12 +95,17 @@ class MetaController:
         self.replacement_executor_backend = replacement_executor_backend
         self.enable_static_output_assets = enable_static_output_assets
         self.enable_adaptive_probes = enable_adaptive_probes
+        self.adaptive_probe_exclude_domains = tuple(
+            domain.strip().lower()
+            for domain in (adaptive_probe_exclude_domains or ())
+            if isinstance(domain, str) and domain.strip()
+        )
         self.differential_concurrency = max(1, int(differential_concurrency))
         self.probe_engine: Optional[ProbeEngine] = None
         self.spec: Optional[ProgramSpec] = None
         self.blueprint: Optional[ArchitectureBlueprint] = None
         self.codebase: Optional[Codebase] = None
-        self.probe_coverage_report = None
+        self.probe_coverage_report: BehavioralCoverageReport | None = None
         self.logs: List[str] = []
         self.repair_decisions: list[dict[str, object]] = []
 
@@ -118,8 +124,15 @@ class MetaController:
             executable, documentation
         )
         await self._phase_spec(documentation, exploration_corpus)
-        await self._phase_architect(self.spec)
-        await self._phase_implement(task_id, self.spec, self.blueprint)
+        if self.spec is None:
+            raise RuntimeError("spec synthesis did not produce a ProgramSpec")
+        spec = self.spec
+        await self._phase_architect(spec)
+        if self.blueprint is None:
+            raise RuntimeError("architecture phase did not produce a blueprint")
+        await self._phase_implement(task_id, spec, self.blueprint)
+        if self.codebase is None:
+            raise RuntimeError("implementation phase did not produce a codebase")
 
         if not self.codebase.executable_path or not self.codebase.executable_path.exists():
             self.codebase.executable_path = self._resolve_executable(self.codebase)
@@ -190,6 +203,7 @@ class MetaController:
                 evidence_store=self.evidence_store,
                 executor_backend=self.reference_executor_backend,
                 enable_adaptive_probes=self.enable_adaptive_probes,
+                adaptive_probe_exclude_domains=self.adaptive_probe_exclude_domains,
             )
             self.llm.set_usage_phase("probe")
             corpus = await self.probe_engine.probe()
@@ -227,6 +241,8 @@ class MetaController:
             spec_task = progress.add_task("Synthesizing specification...", total=None)
             synthesizer = SpecSynthesizer(self.llm)
             self.llm.set_usage_phase("spec_synthesis")
+            if self.probe_engine is None:
+                raise RuntimeError("probe phase must run before spec synthesis")
             self.spec = await synthesizer.synthesize(
                 corpus=exploration_corpus,
                 documentation=documentation,
@@ -287,6 +303,11 @@ class MetaController:
         exploration_corpus: list,
     ) -> Tuple[List[DiffReport], float, int]:
         """Phase 5: Differential validation and iterative repair loop."""
+        if self.codebase is None or self.codebase.executable_path is None:
+            raise RuntimeError("validation requires a generated executable")
+        if self.spec is None:
+            raise RuntimeError("validation requires a synthesized spec")
+        spec = self.spec
         tester = DifferentialTester(
             original=executable,
             replacement=self.codebase.executable_path,
@@ -301,7 +322,7 @@ class MetaController:
         accepted_codebase = self.codebase.model_copy(deep=True)
         accepted_reports: List[DiffReport] = []
         accepted_rate = -1.0
-        rejected_repair_targets = set()
+        rejected_repair_targets: set[ClusterKey] = set()
         last_repair_target_key = None
         pending_repair_decision: dict[str, object] | None = None
         repair_iterations_used = 0
@@ -383,14 +404,14 @@ class MetaController:
             )
             try:
                 self.llm.set_usage_phase("repair")
-                strategy = await repair.diagnose_cluster(cluster, self.spec, self.codebase)
+                strategy = await repair.diagnose_cluster(cluster, spec, self.codebase)
                 self.log(
                     f"Repair strategy: {strategy.strategy_type} -> "
                     f"{strategy.description[:80]}..."
                 )
                 pending_repair_decision["strategy_type"] = strategy.strategy_type
                 self.llm.set_usage_phase("repair")
-                self.codebase = await repair.apply_repair(strategy, self.codebase, self.spec)
+                self.codebase = await repair.apply_repair(strategy, self.codebase, spec)
                 repair_issues = await self._find_repair_candidate_issues(self.codebase)
                 if repair_issues:
                     if pending_repair_decision is not None:

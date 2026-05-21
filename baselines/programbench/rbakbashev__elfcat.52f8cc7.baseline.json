@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-15T10:37:30.456307+00:00",
+  "recorded_at": "2026-05-20T14:13:50.160139+00:00",
   "instance_id": "rbakbashev__elfcat.52f8cc7",
-  "model": "glm-5.1",
-  "config_path": "config\\settings.yaml",
-  "notes": "Historical official aggregate baseline discovered from existing eval artifact: 96/564 counted tests, score 17; local holdout was only 2 cases, so retained as low-sample aggregate evidence, not a current gate-passing breakthrough.",
+  "model": "codex-file-bridge-elfcat-reference_html_patch1",
+  "config_path": "C:\\Users\\Administrator\\Desktop\\ReBuilder\\output\\file_bridge_manual\\smoke_file_bridge_elfcat_reference_html_patch1.yaml",
+  "notes": "Official closed-loop aggregate baseline: 316/564 counted tests, score 56; raw eval 390/646; aggregate-only.",
   "local": {
-    "status": "success",
-    "resolved_rate": 1.0,
-    "holdout_resolved_rate": 1.0,
-    "probes_conducted": 9,
+    "status": "failed",
+    "resolved_rate": 0.8151260504201681,
+    "holdout_resolved_rate": 0.8333333333333334,
+    "probes_conducted": 73,
     "iterations_used": 0
   },
   "official": {
-    "passed_tests": 96,
+    "passed_tests": 316,
     "total_tests": 564,
-    "pass_rate": 0.1702127659574468,
-    "score": 17,
+    "pass_rate": 0.5602836879432624,
+    "score": 56,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_resolved_batch1_20260512\\submission_elfcat\\rbakbashev__elfcat.52f8cc7\\submission.tar.gz",
-    "sha256": "68924ed628826475b27323747f76d9ed5b63a1102defcd382a1e9fe99a46deb5"
+    "path": "runs\\programbench_official_eval\\submission_elfcat_reference_html_patch1_20260520\\rbakbashev__elfcat.52f8cc7\\submission.tar.gz",
+    "sha256": "6c6c56e9837d06dd5e52b8a0c936883a3c2e4504b40f6a8414876d5d0564dddb"
   }
 }

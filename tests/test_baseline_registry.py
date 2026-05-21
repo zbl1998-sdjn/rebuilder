@@ -235,3 +235,51 @@ def test_baseline_recorder_records_invalid_local_result_payload(tmp_path, monkey
     assert payload["local"]["holdout_resolved_rate"] is None
     assert payload["local"]["probes_conducted"] == 0
     assert payload["local"]["iterations_used"] == 0
+
+
+def test_baseline_recorder_ranks_lower_official_candidate_below_existing():
+    recorder = BaselineRecorder()
+    existing = {
+        "official": {
+            "passed_tests": 697,
+            "pass_rate": 697 / 810,
+            "score": 86,
+            "fully_resolved": False,
+            "almost_resolved": False,
+        }
+    }
+    candidate = {
+        "official": {
+            "passed_tests": 651,
+            "pass_rate": 651 / 810,
+            "score": 80,
+            "fully_resolved": False,
+            "almost_resolved": False,
+        }
+    }
+
+    assert recorder._official_rank(candidate) < recorder._official_rank(existing)
+
+
+def test_baseline_recorder_ranks_same_score_more_passed_tests_as_upgrade():
+    recorder = BaselineRecorder()
+    existing = {
+        "official": {
+            "passed_tests": 695,
+            "pass_rate": 695 / 810,
+            "score": 86,
+            "fully_resolved": False,
+            "almost_resolved": False,
+        }
+    }
+    candidate = {
+        "official": {
+            "passed_tests": 697,
+            "pass_rate": 697 / 810,
+            "score": 86,
+            "fully_resolved": False,
+            "almost_resolved": False,
+        }
+    }
+
+    assert recorder._official_rank(candidate) > recorder._official_rank(existing)

@@ -55,7 +55,7 @@ def test_case_fingerprint(test_case: TestCase) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-test_case_fingerprint.__test__ = False
+setattr(test_case_fingerprint, "__test__", False)
 
 
 def test_case_json_payload(test_case: TestCase) -> dict[str, Any]:

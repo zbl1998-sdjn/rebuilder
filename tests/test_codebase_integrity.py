@@ -367,6 +367,120 @@ async def test_python_runtime_smoke_checker_runs_safe_file_input_contracts(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_python_runtime_smoke_checker_prioritizes_input_files_with_limited_contract_budget(
+    tmp_path,
+):
+    codebase = Codebase(
+        root_path=tmp_path,
+        language="python",
+        files={
+            "main.py": (
+                "from pathlib import Path\n"
+                "import sys\n"
+                "def main():\n"
+                "    if len(sys.argv) > 1 and sys.argv[1] == 'input.csv':\n"
+                "        Path(sys.argv[1]).read_text()\n"
+                "        raise RuntimeError('file dimension smoked')\n"
+                "    return 0\n"
+                "if __name__ == '__main__':\n"
+                "    raise SystemExit(main())\n"
+            ),
+        },
+    )
+    contracts = [
+        BehaviorContract(
+            test_name=f"aaa_arg_contract_{index}",
+            args=[f"--flag-{index}"],
+            stdout="ok\n",
+            tags=["smoke_contract:csv_table.flag"],
+        )
+        for index in range(6)
+    ]
+    contracts.append(
+        BehaviorContract(
+            test_name="zzz_file_input_contract",
+            args=["input.csv"],
+            input_files={"input.csv": b"name\nAda\n"},
+            stdout="Ada\n",
+            tags=["file_io", "smoke_contract:csv_table.file_input"],
+        )
+    )
+
+    checker = PythonRuntimeSmokeChecker(max_contract_cases=3)
+    metadata = checker.plan_metadata(contracts)
+    issues = await checker.find_issues(
+        codebase,
+        entry_point="main.py",
+        behavior_contracts=contracts,
+    )
+
+    assert metadata["input_file_case_count"] == 1
+    assert "input_files" in metadata["input_dimensions"]
+    assert [(issue.kind, issue.path) for issue in issues] == [
+        ("runtime_smoke_traceback", "main.py")
+    ]
+    assert "input.csv" in issues[0].message
+    assert "file dimension smoked" in issues[0].message
+
+
+@pytest.mark.asyncio
+async def test_python_runtime_smoke_checker_keeps_file_input_when_error_contracts_fill_budget(
+    tmp_path,
+):
+    codebase = Codebase(
+        root_path=tmp_path,
+        language="python",
+        files={
+            "main.py": (
+                "from pathlib import Path\n"
+                "import sys\n"
+                "def main():\n"
+                "    if len(sys.argv) > 1 and sys.argv[1] == 'input.csv':\n"
+                "        Path(sys.argv[1]).read_text()\n"
+                "        raise RuntimeError('file dimension smoked')\n"
+                "    return 0\n"
+                "if __name__ == '__main__':\n"
+                "    raise SystemExit(main())\n"
+            ),
+        },
+    )
+    contracts = [
+        BehaviorContract(
+            test_name=f"aaa_error_contract_{index}",
+            args=[f"--missing-value-{index}"],
+            stderr="error\n",
+            exit_code=2,
+            tags=["error_mode"],
+        )
+        for index in range(8)
+    ]
+    contracts.append(
+        BehaviorContract(
+            test_name="zzz_file_input_contract",
+            args=["input.csv"],
+            input_files={"input.csv": b"name\nAda\n"},
+            stdout="Ada\n",
+            tags=["file_io", "smoke_contract:csv_table.file_input"],
+        )
+    )
+
+    checker = PythonRuntimeSmokeChecker(max_contract_cases=3)
+    metadata = checker.plan_metadata(contracts)
+    issues = await checker.find_issues(
+        codebase,
+        entry_point="main.py",
+        behavior_contracts=contracts,
+    )
+
+    assert metadata["input_file_case_count"] == 1
+    assert "input_files" in metadata["input_dimensions"]
+    assert [(issue.kind, issue.path) for issue in issues] == [
+        ("runtime_smoke_traceback", "main.py")
+    ]
+    assert "input.csv" in issues[0].message
+
+
+@pytest.mark.asyncio
 async def test_python_runtime_smoke_checker_skips_unsafe_file_path_args(tmp_path):
     codebase = Codebase(
         root_path=tmp_path,

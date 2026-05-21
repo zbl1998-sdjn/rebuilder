@@ -7,6 +7,7 @@ import json
 import math
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 from core.evaluation import ProgramBenchEvalParser
 
@@ -60,6 +61,8 @@ class BaselineRecorder:
         target = Path(output_dir)
         target.mkdir(parents=True, exist_ok=True)
         record_path = target / f"{instance_id}.baseline.json"
+        if record_path.exists() and not self._candidate_beats_existing_record(record_path, record):
+            return record_path
         record_path.write_text(
             json.dumps(record, indent=2, ensure_ascii=False),
             encoding="utf-8",
@@ -76,8 +79,10 @@ class BaselineRecorder:
         return payload
 
     def _as_float(self, value: object) -> float:
+        if value is None:
+            value = 0.0
         try:
-            parsed = float(value or 0.0)
+            parsed = float(cast(Any, value))
         except (TypeError, ValueError):
             return 0.0
         return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else 0.0
@@ -86,7 +91,7 @@ class BaselineRecorder:
         if value is None:
             return None
         try:
-            parsed = float(value)
+            parsed = float(cast(Any, value))
         except (TypeError, ValueError):
             return None
         return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else None
@@ -94,8 +99,10 @@ class BaselineRecorder:
     def _as_int(self, value: object) -> int:
         if isinstance(value, bool):
             return 0
+        if value is None:
+            value = 0
         try:
-            parsed = float(value or 0)
+            parsed = float(cast(Any, value))
         except (TypeError, ValueError):
             return 0
         if not math.isfinite(parsed) or parsed < 0 or not parsed.is_integer():
@@ -104,6 +111,26 @@ class BaselineRecorder:
 
     def _load_official_summary(self, instance_id: str, official_eval_path: Path | str):
         return ProgramBenchEvalParser().parse(official_eval_path, instance_id=instance_id)
+
+    def _candidate_beats_existing_record(self, existing_path: Path, candidate: dict[str, object]) -> bool:
+        try:
+            existing = json.loads(existing_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return True
+        if not isinstance(existing, dict):
+            return True
+        return self._official_rank(candidate) > self._official_rank(existing)
+
+    def _official_rank(self, record: dict[str, object]) -> tuple[int, int, int, int, float]:
+        official = record.get("official")
+        if not isinstance(official, dict):
+            return (0, 0, 0, 0, 0.0)
+        fully_resolved = 1 if official.get("fully_resolved") is True else 0
+        almost_resolved = 1 if official.get("almost_resolved") is True else 0
+        score = self._as_int(official.get("score"))
+        passed_tests = self._as_int(official.get("passed_tests"))
+        pass_rate = self._as_float(official.get("pass_rate"))
+        return (fully_resolved, almost_resolved, score, passed_tests, pass_rate)
 
     def _sha256(self, path: Path) -> str:
         digest = hashlib.sha256()

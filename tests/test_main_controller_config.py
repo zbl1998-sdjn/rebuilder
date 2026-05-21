@@ -16,6 +16,7 @@ def args(
     probe_iterations=None,
     min_probe_samples=None,
     adaptive_probes="config",
+    adaptive_probe_exclude_domain=None,
 ):
     return SimpleNamespace(
         max_repairs=max_repairs,
@@ -25,6 +26,7 @@ def args(
         replacement_executor=None,
         static_output_assets=static_output_assets,
         adaptive_probes=adaptive_probes,
+        adaptive_probe_exclude_domain=adaptive_probe_exclude_domain or [],
     )
 
 
@@ -214,6 +216,18 @@ def test_build_controller_cli_overrides_adaptive_probe_toggle(tmp_path):
     )
 
     assert controller.enable_adaptive_probes is True
+
+
+def test_build_controller_forwards_adaptive_probe_domain_exclusions(tmp_path):
+    config = {"probe": {"adaptive_probes": True}, "controller": {}}
+
+    controller = build_controller(
+        MockLLMClient(),
+        config,
+        args(output=str(tmp_path / "out"), adaptive_probe_exclude_domain=["CSV_Table"]),
+    )
+
+    assert controller.adaptive_probe_exclude_domains == ("csv_table",)
 
 
 def test_discover_run_session_from_workspace_path(tmp_path):

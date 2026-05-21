@@ -9,6 +9,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -158,6 +159,8 @@ def build_restore_audit(
     latest_adaptive_axes = as_int(latest_gate.get("adaptive_axis_count"))
     best_smoke_axes = as_int(best_gate.get("smoke_contract_axis_count"))
     best_adaptive_axes = as_int(best_gate.get("adaptive_axis_count"))
+    best_gate_reason = restore_gate_reason(best_gate)
+    latest_gate_reason = restore_gate_reason(latest_gate)
     best_smoke_axis_names, best_adaptive_axis_names = result_axis_sets(target.best_result_path)
     latest_smoke_axis_names, latest_adaptive_axis_names = result_axis_sets(target.latest_result_path)
     added_smoke_axis_names = tuple(sorted(latest_smoke_axis_names - best_smoke_axis_names))
@@ -165,7 +168,7 @@ def build_restore_audit(
     removed_smoke_axis_names = tuple(sorted(best_smoke_axis_names - latest_smoke_axis_names))
     removed_adaptive_axis_names = tuple(sorted(best_adaptive_axis_names - latest_adaptive_axis_names))
     regression_signal = classify_regression_signal(
-        latest_gate_reason=str(latest_gate["reason"]),
+        latest_gate_reason=latest_gate_reason,
         regression_delta=regression_delta,
         latest_axis_count=latest_smoke_axes + latest_adaptive_axes,
         best_axis_count=best_smoke_axes + best_adaptive_axes,
@@ -178,8 +181,8 @@ def build_restore_audit(
         best_holdout_resolved_rate=target.best_holdout_resolved_rate,
         best_holdout_cases=target.best_holdout_cases,
         regression_delta=regression_delta,
-        best_gate_reason=str(best_gate["reason"]),
-        latest_gate_reason=str(latest_gate["reason"]),
+        best_gate_reason=best_gate_reason,
+        latest_gate_reason=latest_gate_reason,
         latest_smoke_contract_axis_count=latest_smoke_axes,
         latest_adaptive_axis_count=latest_adaptive_axes,
         best_smoke_contract_axis_count=best_smoke_axes,
@@ -208,7 +211,7 @@ def build_restore_audit(
             regression_signal=regression_signal,
         ),
         regression_signal=regression_signal,
-        next_action=restore_next_action(str(best_gate["reason"]), str(latest_gate["reason"])),
+        next_action=restore_next_action(best_gate_reason, latest_gate_reason),
         latest_result_path=target.latest_result_path,
         best_result_path=target.best_result_path,
         source_target=target,
@@ -221,6 +224,29 @@ def restore_next_action(best_gate_reason: str, latest_gate_reason: str) -> str:
     if best_gate_reason != "eligible_baseline_upgrade":
         return "refresh_or_rebuild_historical_best_signal"
     return "compare_latest_against_best_before_rerun"
+
+
+def restore_gate_reason(gate: dict[str, Any]) -> str:
+    """Classify restore rows by local aggregate blockers before official-summary blockers."""
+    reason = str(gate.get("reason", ""))
+    if reason != "missing_official_candidate_summary":
+        return reason
+    holdout_cases = as_int(gate.get("holdout_cases"))
+    min_holdout_cases = as_int(gate.get("min_holdout_cases"))
+    if holdout_cases < min_holdout_cases:
+        return "too_few_holdout_cases"
+    holdout_rate = gate.get("holdout_resolved_rate")
+    min_holdout_rate = gate.get("min_holdout_rate")
+    if holdout_rate is None:
+        return "missing_holdout"
+    try:
+        parsed_rate = float(cast(Any, holdout_rate))
+        parsed_min_rate = float(cast(Any, min_holdout_rate))
+    except (TypeError, ValueError):
+        return "missing_holdout"
+    if parsed_rate < parsed_min_rate:
+        return "low_holdout_rate"
+    return "eligible_baseline_upgrade"
 
 
 def classify_regression_signal(
@@ -250,8 +276,10 @@ def restore_sort_key(row: RestoreTargetAudit) -> tuple[int, float, str]:
 def as_int(value: object) -> int:
     if isinstance(value, bool):
         return 0
+    if value is None:
+        value = 0
     try:
-        return int(value or 0)
+        return int(cast(Any, value))
     except (TypeError, ValueError):
         return 0
 

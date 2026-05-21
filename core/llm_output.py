@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from typing import Any, List
 
@@ -59,13 +61,51 @@ def parse_llm_test_cases(text: str) -> List[TestCase]:
     for item in data:
         if not isinstance(item, dict):
             continue
-        cases.append(
-            TestCase(
-                name=item.get("name", "unnamed"),
-                args=list(item.get("args", []) or []),
-                stdin=item.get("stdin", "") or "",
-                input_files=item.get("input_files", {}) or {},
-                description=item.get("description", "") or "",
+        try:
+            cases.append(
+                TestCase(
+                    name=item.get("name", "unnamed"),
+                    args=list(item.get("args", []) or []),
+                    stdin=item.get("stdin", "") or "",
+                    input_files=_normalize_input_files(item.get("input_files", {}) or {}),
+                    description=item.get("description", "") or "",
+                )
             )
-        )
+        except ValueError:
+            continue
     return cases
+
+
+def _normalize_input_files(value: Any) -> dict[str, bytes]:
+    if not isinstance(value, dict):
+        return {}
+
+    normalized: dict[str, bytes] = {}
+    for filename, content in value.items():
+        if not isinstance(filename, str) or not filename:
+            continue
+        materialized = _normalize_input_file_content(content)
+        if materialized is None:
+            continue
+        normalized[filename] = materialized
+    return normalized
+
+
+def _normalize_input_file_content(value: Any) -> bytes | None:
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    if not isinstance(value, dict):
+        return None
+
+    if value.get("__type__") != "bytes":
+        return None
+
+    encoded = value.get("base64")
+    if not isinstance(encoded, str):
+        return None
+    try:
+        return base64.b64decode(encoded.encode("ascii"), validate=True)
+    except (binascii.Error, ValueError):
+        return None
