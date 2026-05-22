@@ -127,6 +127,33 @@ def test_official_eval_mode_keeps_file_bridge_harness_active() -> None:
     assert "--ack-local-llm-docker" in command
 
 
+def test_official_eval_mode_forwards_resource_limits_and_force() -> None:
+    harness = load_harness()
+
+    command = harness.build_closed_loop_command(
+        "restore_patch3_generalization_probe",
+        config_path=ROOT / "example.yaml",
+        model="codex-file-bridge-chroma-test",
+        run_name="file_bridge_no_external_chroma_test",
+        run_official_eval=True,
+        official_eval_timeout_seconds=7200.0,
+        docker_command_timeout_seconds=300.0,
+        workers=1,
+        branch_workers=1,
+        docker_cpus=2,
+        branch_retries=0,
+        force=True,
+    )
+
+    assert command[command.index("--official-eval-timeout-seconds") + 1] == "7200"
+    assert command[command.index("--docker-command-timeout-seconds") + 1] == "300"
+    assert command[command.index("--workers") + 1] == "1"
+    assert command[command.index("--branch-workers") + 1] == "1"
+    assert command[command.index("--docker-cpus") + 1] == "2"
+    assert command[command.index("--branch-retries") + 1] == "0"
+    assert "--force" in command
+
+
 def test_default_mode_stops_before_official_eval() -> None:
     harness = load_harness()
 
