@@ -618,8 +618,9 @@ def test_json_ready_rows_expose_strict_baseline_gate_blockers(tmp_path):
     assert row["target_class"] == "local_generalization_gap"
     assert row["next_action"] == "repair_local_generalization_before_official_eval"
     assert row["reason"] == "holdout_not_improved"
-    assert "audit_generalization_risk.py" in row["next_command"]
-    assert "--task task.ready" in row["next_command"]
+    assert "run_weak_task_cleanroom_rerun.py" in row["next_command"]
+    assert "--max-generalization-risk low" in row["next_command"]
+    assert "run_weak_task_cleanroom_rerun.py task.ready" in row["next_command"]
     gate = row["baseline_upgrade_gate"]
     assert gate["checked"] is True
     assert gate["eligible"] is False
@@ -668,14 +669,69 @@ def test_json_ready_rows_block_large_local_holdout_gap(tmp_path):
     assert row["target_class"] == "local_generalization_gap"
     assert row["next_action"] == "repair_local_generalization_before_official_eval"
     assert row["reason"] == "local_holdout_gap_too_high"
-    assert "audit_generalization_risk.py" in row["next_command"]
-    assert "--task task.ready" in row["next_command"]
+    assert "run_weak_task_cleanroom_rerun.py task.ready" in row["next_command"]
+    assert "--max-generalization-risk low" in row["next_command"]
     gate = row["baseline_upgrade_gate"]
     assert gate["checked"] is True
     assert gate["eligible"] is False
     assert gate["reason"] == "local_holdout_gap_too_high"
     assert gate["blockers"] == ["local_holdout_gap_too_high"]
     assert gate["max_local_holdout_gap"] == 0.1
+
+
+def test_local_holdout_gap_next_command_runs_guarded_closed_loop_repair(tmp_path):
+    runs = tmp_path / "runs"
+    baselines = tmp_path / "baselines"
+    write_baseline(baselines / "ready.baseline.json", "task.ready", 25)
+    write_result(
+        runs / "ready",
+        "task.ready",
+        0.85,
+        12,
+        official_eval_summary=official_summary(30, passed_tests=30, total_tests=100),
+        local_rate=1.0,
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/plan_official_breakthrough_targets.py",
+            "--runs",
+            str(runs),
+            "--baseline-root",
+            str(baselines),
+            "--baseline-upgrade-max-local-holdout-gap",
+            "0.1",
+            "--include-next-command",
+            "--rerun-root",
+            "runs/local_gap_repair",
+            "--rerun-config",
+            "config/smoke_file_bridge.yaml",
+            "--rerun-ack-local-llm-docker",
+            "--format",
+            "json",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    [row] = payload["rows"]
+    command = row["next_command"]
+    assert "scripts/run_weak_task_cleanroom_rerun.py task.ready" in command
+    assert "--runs runs/local_gap_repair/task.ready" in command
+    assert "--config config/smoke_file_bridge.yaml" in command
+    assert "--max-generalization-risk low" in command
+    assert "--max-local-holdout-gap 0.1" in command
+    assert "--generalization-risk-root" in command
+    assert "--baseline-root" in command
+    assert "--official-eval-root" in command
+    assert "--dry-run" in command
+    assert "--ack-local-llm-docker" in command
+    assert "--ack-external-llm-docker" not in command
+    assert "audit_generalization_risk.py" not in command
 
 
 def test_json_ready_rows_route_missing_summary_with_local_gap_to_local_generalization(
@@ -717,8 +773,8 @@ def test_json_ready_rows_route_missing_summary_with_local_gap_to_local_generaliz
     assert row["target_class"] == "local_generalization_gap"
     assert row["next_action"] == "repair_local_generalization_before_official_eval"
     assert row["reason"] == "local_holdout_gap_too_high"
-    assert "audit_generalization_risk.py" in row["next_command"]
-    assert "--task task.ready" in row["next_command"]
+    assert "run_weak_task_cleanroom_rerun.py task.ready" in row["next_command"]
+    assert "--max-generalization-risk low" in row["next_command"]
     assert row["baseline_upgrade_gate"]["blockers"] == [
         "missing_official_candidate_summary",
         "local_holdout_gap_too_high",

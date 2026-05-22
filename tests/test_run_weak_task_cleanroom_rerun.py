@@ -71,6 +71,33 @@ def test_build_closed_loop_command_passes_holdout_improvement_delta_without_enab
     assert "--official-eval-root" not in command
 
 
+def test_build_closed_loop_command_passes_generalization_gap_gate_without_enabling_official_eval():
+    args = parse_args(
+        [
+            "sharkdp__hexyl.2e26437",
+            "--max-generalization-risk",
+            "low",
+            "--max-local-holdout-gap",
+            "0.1",
+            "--generalization-risk-root",
+            "runs/history",
+            "--baseline-root",
+            "baselines/programbench",
+            "--official-eval-root",
+            "runs/eval",
+        ]
+    )
+
+    command = build_closed_loop_command(args)
+
+    assert command[command.index("--max-generalization-risk") + 1] == "low"
+    assert command[command.index("--max-local-holdout-gap") + 1] == "0.1"
+    assert command[command.index("--generalization-risk-root") + 1] == "runs/history"
+    assert command[command.index("--baseline-root") + 1] == "baselines/programbench"
+    assert command[command.index("--official-eval-root") + 1] == "runs/eval"
+    assert "--skip-official-eval" in command
+
+
 def test_build_closed_loop_command_passes_smoke_axis_gate_without_enabling_official_eval():
     args = parse_args(
         [

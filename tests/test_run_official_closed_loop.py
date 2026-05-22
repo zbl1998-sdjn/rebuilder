@@ -962,6 +962,28 @@ def test_select_strategy_variant_uses_registry_history(tmp_path):
     assert selected.variant_id == "baseline_no_adaptive"
 
 
+def test_select_strategy_variant_prefers_local_generalization_variant_for_gap_signal():
+    parsed = args(
+        max_generalization_risk="low",
+        max_local_holdout_gap=0.1,
+        probe_iterations=10,
+        min_probe_samples=50,
+        max_repairs=3,
+        near_miss_max_repairs=5,
+        adaptive_probes="disabled",
+    )
+
+    selected = select_strategy_variant(parsed)
+
+    assert selected.variant_id == "local_generalization_repair"
+    assert selected.params["use_adaptive_probes"] is True
+    apply_strategy_variant(parsed, selected)
+    assert parsed.adaptive_probes == "enabled"
+    assert parsed.probe_iterations >= 20
+    assert parsed.min_probe_samples >= 80
+    assert parsed.max_repairs == 5
+
+
 def test_record_strategy_experiment_writes_aggregate_only_registry(tmp_path):
     parsed = args(
         runs=str(tmp_path / "runs"),

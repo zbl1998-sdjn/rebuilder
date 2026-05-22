@@ -519,6 +519,11 @@ def build_guarded_rerun_command(
     min_smoke_contract_axes: int = 0,
     required_runtime_smoke_dimensions: tuple[str, ...] | list[str] | str = (),
     min_holdout_improvement_delta: float = 0.0,
+    max_generalization_risk: str | None = None,
+    max_local_holdout_gap: float | None = None,
+    generalization_risk_root: str | None = None,
+    baseline_root: str | None = None,
+    official_eval_root: str | None = None,
 ) -> str:
     validate_non_negative_finite_int("min_smoke_contract_axes", min_smoke_contract_axes)
     required_dimensions = parse_runtime_smoke_dimensions(
@@ -542,6 +547,19 @@ def build_guarded_rerun_command(
         command += f" --require-runtime-smoke-dimensions {','.join(required_dimensions)}"
     if min_holdout_improvement_delta > 0:
         command += f" --min-holdout-improvement-delta {float(min_holdout_improvement_delta):g}"
+    if max_generalization_risk:
+        if max_generalization_risk not in {"low", "medium", "high"}:
+            raise ValueError("max_generalization_risk must be low, medium, or high")
+        command += f" --max-generalization-risk {max_generalization_risk}"
+        if max_local_holdout_gap is not None:
+            validate_rate_float("max_local_holdout_gap", max_local_holdout_gap)
+            command += f" --max-local-holdout-gap {float(max_local_holdout_gap):g}"
+        if generalization_risk_root:
+            command += f" --generalization-risk-root {quote_shell_arg(generalization_risk_root)}"
+        if baseline_root:
+            command += f" --baseline-root {quote_shell_arg(baseline_root)}"
+        if official_eval_root:
+            command += f" --official-eval-root {quote_shell_arg(official_eval_root)}"
     if ack_local_llm_docker:
         command += " --ack-local-llm-docker"
     return command

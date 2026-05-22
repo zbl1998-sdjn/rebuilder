@@ -49,6 +49,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--min-holdout-improvement-delta", type=_non_negative_float, default=0.0)
     parser.add_argument("--holdout-history-root", default="runs")
+    parser.add_argument("--max-generalization-risk", choices=["low", "medium", "high"], default=None)
+    parser.add_argument("--max-local-holdout-gap", type=_rate_float, default=0.15)
+    parser.add_argument("--generalization-risk-root", default="runs")
+    parser.add_argument("--baseline-root", default="baselines/programbench")
+    parser.add_argument("--official-eval-root", default="runs/programbench_official_eval")
     parser.add_argument("--workers", type=_positive_int, default=1)
     parser.add_argument("--branch-workers", type=_positive_int, default=1)
     parser.add_argument("--docker-cpus", type=_positive_int, default=4)
@@ -180,6 +185,21 @@ def build_closed_loop_command(args: argparse.Namespace) -> list[str]:
         "--holdout-history-root",
         args.holdout_history_root,
     ]
+    if args.max_generalization_risk is not None:
+        command.extend(
+            [
+                "--max-generalization-risk",
+                args.max_generalization_risk,
+                "--max-local-holdout-gap",
+                str(args.max_local_holdout_gap),
+                "--generalization-risk-root",
+                args.generalization_risk_root,
+                "--baseline-root",
+                args.baseline_root,
+                "--official-eval-root",
+                args.official_eval_root,
+            ]
+        )
     if args.strategy_registry:
         command.extend(["--strategy-registry", args.strategy_registry])
     if args.strategy_variant:

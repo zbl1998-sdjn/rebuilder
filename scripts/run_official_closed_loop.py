@@ -413,7 +413,7 @@ def build_strategy_candidates(args: argparse.Namespace) -> list[StrategyVariant]
     deep_probe_budget = max(int(args.probe_iterations), 20)
     deep_min_samples = max(int(args.min_probe_samples), 80)
     deep_repairs = max(int(args.max_repairs), int(args.near_miss_max_repairs))
-    return [
+    candidates = [
         StrategyVariant(
             variant_id="adaptive_profile",
             strategy="closed_loop",
@@ -436,6 +436,23 @@ def build_strategy_candidates(args: argparse.Namespace) -> list[StrategyVariant]
             },
         ),
     ]
+    if args.max_generalization_risk is not None:
+        candidates.insert(
+            0,
+            StrategyVariant(
+                variant_id="local_generalization_repair",
+                strategy="closed_loop",
+                params={
+                    **base_params,
+                    "use_adaptive_probes": True,
+                    "probe_budget": deep_probe_budget,
+                    "min_samples": deep_min_samples,
+                    "max_repair_attempts": deep_repairs,
+                    "repair_mode": "local_generalization_gap",
+                },
+            ),
+        )
+    return candidates
 
 
 def select_strategy_variant(args: argparse.Namespace) -> StrategyVariant:

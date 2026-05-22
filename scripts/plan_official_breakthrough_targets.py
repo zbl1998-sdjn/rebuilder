@@ -1260,8 +1260,12 @@ def build_next_command(
             runs_root=runs_root,
             baseline_root=baseline_root,
             official_eval_root=official_eval_root,
-            min_holdout_rate=min_holdout_rate,
-            min_holdout_cases=min_holdout_cases,
+            rerun_root=rerun_root,
+            rerun_config=rerun_config,
+            rerun_ack_local_llm_docker=rerun_ack_local_llm_docker,
+            rerun_min_smoke_contract_axes=rerun_min_smoke_contract_axes,
+            rerun_require_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
+            rerun_min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
             max_local_holdout_gap=baseline_upgrade_max_local_holdout_gap,
         )
     if row.target_class == "weak_cleanroom_rerun":
@@ -1345,20 +1349,27 @@ def build_local_generalization_gap_command(
     runs_root: str,
     baseline_root: str,
     official_eval_root: str,
-    min_holdout_rate: float,
-    min_holdout_cases: int,
+    rerun_root: str,
+    rerun_config: str = "",
+    rerun_ack_local_llm_docker: bool = False,
+    rerun_min_smoke_contract_axes: int = 0,
+    rerun_require_runtime_smoke_dimensions: str = "",
+    rerun_min_holdout_improvement_delta: float = 0.0,
     max_local_holdout_gap: float,
 ) -> str:
-    return (
-        "python scripts/audit_generalization_risk.py "
-        f"--runs {quote_shell_arg(Path(runs_root).as_posix())} "
-        f"--official-eval-root {quote_shell_arg(Path(official_eval_root).as_posix())} "
-        f"--baseline-root {quote_shell_arg(Path(baseline_root).as_posix())} "
-        f"--task {quote_shell_arg(task_id)} "
-        f"--min-holdout-rate {min_holdout_rate:g} "
-        f"--min-holdout-cases {int(min_holdout_cases)} "
-        f"--max-local-holdout-gap {max_local_holdout_gap:g} "
-        "--format json --limit 20"
+    return build_guarded_rerun_command(
+        task_id,
+        rerun_root,
+        config=rerun_config or None,
+        ack_local_llm_docker=rerun_ack_local_llm_docker,
+        min_smoke_contract_axes=rerun_min_smoke_contract_axes,
+        required_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
+        min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
+        max_generalization_risk="low",
+        max_local_holdout_gap=max_local_holdout_gap,
+        generalization_risk_root=Path(runs_root).as_posix(),
+        baseline_root=Path(baseline_root).as_posix(),
+        official_eval_root=Path(official_eval_root).as_posix(),
     )
 
 
