@@ -1,6 +1,6 @@
 # ReBuilder 项目交接文档
 
-更新时间：2026-05-21
+更新时间：2026-05-22
 
 ## 一句话概括
 
@@ -15,7 +15,25 @@ task_cleanroom image -> probe reference -> synthesize spec -> design architectur
 
 但它还没有到“泛化稳定”阶段。当前已经拿到多项官方 aggregate 基线，包括 zoxide 37、go-mod-outdated 94、htmlq 91、cmatrix 95、csview 87、chmln sd 86、nnn 79、gron 62、clog-cli 45、xsv 44、zip-password-finder 40、elfcat 38，以及历史低样本的 chroma 3；接下来的重点是继续扩展跨任务信号，而不是只追单任务 exploration。
 
-最新重要增量：2026-05-21 继续按 no-external `file_bridge` 路径推进
+最新重要增量：2026-05-22 继续按 no-external `file_bridge` 路径复核
+`burntsushi__xsv.f430466` 的本地泛化缺口。本轮仍没有使用 Kimi/GLM/外部 LLM；
+推理响应只通过 ReBuilder 的本地 `file_bridge` harness 写入 request/response 文件。
+先补了 official closed-loop/runner 侧 gate：`0/0` 或缺 `.eval.json` 的 ProgramBench
+结果现在被归为 official-eval operational failure，不再能伪装成有效 0 分 aggregate；
+planner 对 `local_holdout_gap_too_high` 也会生成 guarded no-external closed-loop repair
+命令，而不是继续给 audit-only 路由。
+
+随后按该路由复核 xsv：Docker Desktop service 起初未运行，`dockerDesktopLinuxEngine`
+pipe 不存在；启动 `com.docker.service` 和 Docker Desktop 后，本地 cleanroom 闭环可执行。
+`restore_patch5`/`restore_patch6` 只基于公开本地 exploration failure 调整 `frequency`
+equal-count ordering，但复跑显示同一公开轴的 reference 顺序不稳定：`restore_patch5`
+最终仍为 exploration `100/102`、holdout `12/15`，`restore_patch6` 同样没有改善。
+generalization audit 继续判定 `risk_level=high`、`risk_reason=local_holdout_gap_too_high`，
+strict official-ready ranker 在 `--max-local-holdout-gap 0.15` 下仍为 `row_count=0`。
+因此本轮没有运行 ProgramBench official eval，也不能声明官方 aggregate breakthrough；
+当前最重要的结论是继续把 xsv 归为本地泛化缺口，而不是重复提交官方评测。
+
+此前重要增量：2026-05-21 继续按 no-external `file_bridge` 路径推进
 `rbakbashev__elfcat.52f8cc7` 的 `reference_html_patch3`。本轮没有使用
 Kimi/GLM/外部 LLM；仍由 ReBuilder 本地 file-bridge/subagent 架构完成推理。
 patch3 不改变 patch2 的 HTML 兼容行为，只把 ELF64 program/section header 记录在

@@ -4,6 +4,75 @@ This file collects publishable source material from ReBuilder development work.
 It intentionally avoids hidden ProgramBench failure details, raw prompts, API
 keys, and non-aggregate official eval evidence.
 
+## 2026-05-22 Xsv Local-Generalization Gate Stop
+
+### Publishable Summary
+
+This pass continued the no-external-LLM route inside ReBuilder's `file_bridge`
+architecture. No Kimi, GLM, local OpenAI endpoint, or external LLM API was used
+for candidate generation. The work focused on an `xsv` local-generalization gap
+that the planner/ranker now surfaces as `local_holdout_gap_too_high`.
+
+The operational path was repaired first. Docker Desktop was not running on the
+machine, so the local cleanroom loop initially failed before candidate
+execution because `npipe:////./pipe/dockerDesktopLinuxEngine` did not exist.
+After starting `com.docker.service` and Docker Desktop, the ReBuilder
+`file_bridge` loop could pull/use the cleanroom image and run locally.
+
+Two `xsv frequency` follow-up experiments were tried from public local
+exploration evidence only. `restore_patch5` made equal-count frequency ties use
+value-lexical order, and `restore_patch6` tried to split stdin and file-input
+tie behavior. Repeated local runs showed the public signal is unstable: one
+visible frequency case favored lexical order, another favored first-seen order,
+and a later rerun of `restore_patch5` did not preserve the apparent improvement.
+The final retained evidence is therefore a gate stop, not a breakthrough.
+
+No ProgramBench official aggregate evaluation was run for these xsv follow-ups.
+The latest local `restore_patch5` run remained at exploration `100/102`,
+holdout `12/15`, runtime-smoke dimensions `args/input_files/stdin`, and
+`risk_reason=local_holdout_gap_too_high`. Strict official-ready ranking with
+`--max-local-holdout-gap 0.15` still returned `row_count=0`.
+
+### Evidence
+
+- Latest local result:
+  `runs\file_bridge_no_external_xsv_20260522_restore_patch5\burntsushi__xsv.f430466\generated\burntsushi__xsv.f430466\burntsushi__xsv.f430466\result.json`
+  with exploration `100/102`, holdout `12/15`, and provider `file_bridge`.
+- Latest local failure report:
+  `runs\file_bridge_no_external_xsv_20260522_restore_patch5\burntsushi__xsv.f430466\reports\burntsushi__xsv.f430466.exploration.failures.json`.
+- Generalization audit:
+  `risk_level=high`, `risk_reason=local_holdout_gap_too_high`,
+  `block_official_eval=true`, latest local holdout gap about `0.1804`.
+- Strict official-ready ranker on the latest local run returned `row_count=0`.
+
+### Verification
+
+- `.\.venv\Scripts\python.exe -m pytest tests\test_xsv_file_bridge_harness.py -q -p no:cacheprovider --basetemp C:\tmp\rebuilder_xsv_tests_reverted`
+  -> `8 passed`.
+- `.\.venv\Scripts\python.exe -m py_compile output\file_bridge_manual\run_xsv_file_bridge.py tests\test_xsv_file_bridge_harness.py`
+  passed during the patch5/patch6 experiments.
+- `python -m ruff check --no-cache output\file_bridge_manual\run_xsv_file_bridge.py tests\test_xsv_file_bridge_harness.py`
+  passed during the patch5/patch6 experiments.
+- `.\.venv\Scripts\python.exe output\file_bridge_manual\run_xsv_file_bridge.py restore_patch5 --pull`
+  completed the local no-external `file_bridge` loop after Docker Desktop was
+  started.
+
+### Safe External Narrative
+
+Useful public phrasing:
+
+> We continued the no-external ReBuilder `file_bridge` path for `xsv` and
+> deliberately stopped before official aggregate evaluation. The local
+> frequency-ordering signal was inconsistent across public exploration cases,
+> and the holdout gap remained too high for the current official-ready gate.
+
+Avoid claiming:
+
+- that `xsv restore_patch5` or `restore_patch6` improved the official aggregate;
+- that either candidate is solved or official-ready;
+- that external LLMs were used;
+- that the observed equal-count frequency ordering is a stable public contract.
+
 ## 2026-05-20 Subagent Official-Standard Loop Hardening
 
 ### Publishable Summary
