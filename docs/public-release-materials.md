@@ -2539,3 +2539,53 @@ Avoid claiming:
 - that Kimi K2.6, GLM, local OpenAI, or another external LLM was used;
 - that local exploration/holdout results predict hidden official behavior;
 - that the observed `xsv frequency` tie ordering is a stable public contract.
+
+## 2026-05-23 No-External Subagent Boundary And xsv Patch6
+
+### Summary
+
+- Requirement captured: official-set testing may need reasoning, but subagents
+  must be placed inside ReBuilder's no-external path, preferably through
+  `file_bridge`; do not call external LLM services for official-test work.
+- Planner repair: `local_generalization_gap` next commands now default to
+  `--config config/smoke_file_bridge.yaml` and `--ack-local-llm-docker` even
+  when the operator does not pass `--rerun-config`.
+- xsv `restore_patch6` repaired one local stdin frequency-tie behavior in the
+  ignored manual file_bridge harness, then ran a no-external local closed loop.
+  It reached exploration `102/102` and holdout `12/15`, matching patch5's
+  holdout and remaining below the strict local-gap gate.
+- The strict official-ready ranker still returned `row_count=0`; no official
+  eval was run for xsv patch6 and this is not an official breakthrough.
+
+### Verification
+
+- `.\.venv\Scripts\python.exe -m py_compile scripts\plan_official_breakthrough_targets.py tests\test_plan_official_breakthrough_targets.py tests\test_xsv_file_bridge_harness.py output\file_bridge_manual\run_xsv_file_bridge.py`
+  passed.
+- `python -m ruff check --no-cache scripts\plan_official_breakthrough_targets.py tests\test_plan_official_breakthrough_targets.py tests\test_xsv_file_bridge_harness.py output\file_bridge_manual\run_xsv_file_bridge.py`
+  passed.
+- `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp C:\tmp\rebuilder_planner_tests_20260523 tests\test_plan_official_breakthrough_targets.py`
+  -> `18 passed`.
+- `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp C:\tmp\rebuilder_xsv_tests_20260523 tests\test_xsv_file_bridge_harness.py`
+  -> `9 passed`.
+- `.\.venv\Scripts\python.exe output\file_bridge_manual\run_xsv_file_bridge.py restore_patch6 --pull`
+  completed through the ReBuilder `file_bridge` provider with local exploration
+  `102/102` and holdout `12/15`.
+- `.\.venv\Scripts\python.exe scripts\rank_programbench_candidates.py --runs runs --official-eval-root runs\programbench_official_eval --baseline-root baselines\programbench --official-eligible-only --allow-existing-official --latest-per-task --require-runtime-smoke-dimensions args,input_files,stdin --max-local-holdout-gap 0.15 --format json`
+  returned `row_count=0`.
+
+### Safe External Narrative
+
+Useful public phrasing:
+
+> We tightened ReBuilder's planner so local generalization-gap follow-ups stay
+> on the no-external `file_bridge` route by default. A new xsv patch was tested
+> locally through that path, but it only matched the previous holdout result and
+> did not clear the strict official-ready gate, so no official aggregate claim
+> is made.
+
+Avoid claiming:
+
+- that xsv `restore_patch6` has a new official score;
+- that xsv is solved or almost solved in official aggregate terms;
+- that external LLMs were used for this official-test path;
+- that hidden official case details informed the repair.

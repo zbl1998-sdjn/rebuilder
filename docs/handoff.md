@@ -795,3 +795,11 @@ ReBuilder 已经证明了两件事：
 3. 静态资产带来的收益已经具备跨任务泛化。
 
 下一阶段的核心任务是从“单任务可运行”推进到“多任务可复现、可 ablation、holdout 更强”的研究状态。
+
+## 2026-05-23 no-external 子代理约束与 xsv patch6 记录
+
+用户补充的硬边界：官方测试集需要 LLM 推理能力时，也不能调用外部 LLM；子代理/推理能力必须放入 ReBuilder 框架内，通过 no-external `file_bridge` 或等价本地闭环参与测试。官方隐藏 case 细节不得外泄，公开叙事只允许 aggregate evidence；只有 aggregate official evidence 超过记录 baseline，才可称为官方突破。
+
+本轮把 planner 的 `local_generalization_gap` 默认 next command 收紧为 no-external 路径：即使用户未显式传 `--rerun-config`，也会带上 `--config config/smoke_file_bridge.yaml` 与 `--ack-local-llm-docker`，避免后续 zip/xsv 这类 local-gap 候选误走外部模型路径。
+
+xsv `restore_patch6` 只做了本地 no-external `file_bridge` 验证，没有进入官方评测：本地闭环为 exploration `102/102`、holdout `12/15`、runtime smoke 覆盖 args/stdin/input_files/default，和 patch5 的 holdout 持平。strict official-ready ranker 在 `--require-runtime-smoke-dimensions args,input_files,stdin --max-local-holdout-gap 0.15` 下仍为 `row_count=0`；planner 继续把 xsv 判为 `local_generalization_gap` / `local_holdout_gap_too_high`，因此不能声明官方突破。

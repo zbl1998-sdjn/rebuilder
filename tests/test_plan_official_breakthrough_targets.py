@@ -734,6 +734,48 @@ def test_local_holdout_gap_next_command_runs_guarded_closed_loop_repair(tmp_path
     assert "audit_generalization_risk.py" not in command
 
 
+def test_local_holdout_gap_default_next_command_uses_file_bridge_ack(tmp_path):
+    runs = tmp_path / "runs"
+    baselines = tmp_path / "baselines"
+    write_baseline(baselines / "ready.baseline.json", "task.ready", 25)
+    write_result(
+        runs / "ready",
+        "task.ready",
+        0.85,
+        12,
+        official_eval_summary=official_summary(30, passed_tests=30, total_tests=100),
+        local_rate=1.0,
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/plan_official_breakthrough_targets.py",
+            "--runs",
+            str(runs),
+            "--baseline-root",
+            str(baselines),
+            "--baseline-upgrade-max-local-holdout-gap",
+            "0.1",
+            "--include-next-command",
+            "--format",
+            "json",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    [row] = payload["rows"]
+    command = row["next_command"]
+    assert "scripts/run_weak_task_cleanroom_rerun.py task.ready" in command
+    assert "--config config/smoke_file_bridge.yaml" in command
+    assert "--ack-local-llm-docker" in command
+    assert "--ack-external-llm-docker" not in command
+
+
 def test_json_ready_rows_route_missing_summary_with_local_gap_to_local_generalization(
     tmp_path,
 ):

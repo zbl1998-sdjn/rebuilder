@@ -28,15 +28,22 @@ def extract_main_py(artifact: str) -> str:
     return artifact[len(start) : artifact.rfind(end)]
 
 
-def run_generated(tmp_path: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+def run_generated(
+    tmp_path: Path,
+    args: list[str],
+    *,
+    variant: str = "restore_patch4",
+    stdin: str = "",
+) -> subprocess.CompletedProcess[str]:
     harness = load_harness()
     main_py = tmp_path / "main.py"
     main_py.write_text(
-        extract_main_py(harness.implementation_artifact("restore_patch4")),
+        extract_main_py(harness.implementation_artifact(variant)),
         encoding="utf-8",
     )
     return subprocess.run(
         [sys.executable, str(main_py), *args],
+        input=stdin,
         text=True,
         encoding="utf-8",
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
@@ -84,6 +91,26 @@ def test_frequency_limit_zero_disables_limit_and_preserves_first_seen_ties(tmp_p
         "name,carol,1\n"
         "age,30,2\n"
         "age,25,1\n"
+    )
+
+
+def test_restore_patch6_stdin_frequency_ties_preserve_first_seen(tmp_path: Path) -> None:
+    result = run_generated(
+        tmp_path,
+        ["frequency"],
+        variant="restore_patch6",
+        stdin="color,size\nred,S\nblue,M\nred,L\nred,S\nblue,S\n",
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "field,value,count\n"
+        "color,red,3\n"
+        "color,blue,2\n"
+        "size,S,3\n"
+        "size,M,1\n"
+        "size,L,1\n"
     )
 
 

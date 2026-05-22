@@ -36,6 +36,7 @@ from scripts.rank_programbench_candidates import (  # noqa: E402
 )
 
 DEFAULT_MAX_LOCAL_HOLDOUT_GAP = 0.15
+DEFAULT_LOCAL_GAP_RERUN_CONFIG = "config/smoke_file_bridge.yaml"
 
 
 @dataclass(frozen=True)
@@ -1360,8 +1361,8 @@ def build_local_generalization_gap_command(
     return build_guarded_rerun_command(
         task_id,
         rerun_root,
-        config=rerun_config or None,
-        ack_local_llm_docker=rerun_ack_local_llm_docker,
+        config=rerun_config or DEFAULT_LOCAL_GAP_RERUN_CONFIG,
+        ack_local_llm_docker=True,
         min_smoke_contract_axes=rerun_min_smoke_contract_axes,
         required_runtime_smoke_dimensions=rerun_require_runtime_smoke_dimensions,
         min_holdout_improvement_delta=rerun_min_holdout_improvement_delta,
