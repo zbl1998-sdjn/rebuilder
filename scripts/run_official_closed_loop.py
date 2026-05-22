@@ -603,6 +603,7 @@ def build_subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUNBUFFERED"] = "1"
     env.setdefault("NO_COLOR", "1")
     return env
 

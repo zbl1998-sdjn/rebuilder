@@ -236,6 +236,7 @@ def test_run_command_passes_timeout_when_requested(monkeypatch):
     assert seen["text"] is True
     assert seen["check"] is False
     assert seen["env"]["PYTHONIOENCODING"] == "utf-8"
+    assert seen["env"]["PYTHONUNBUFFERED"] == "1"
     assert seen["timeout"] == 12.5
 
 
