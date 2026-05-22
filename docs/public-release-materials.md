@@ -2563,6 +2563,18 @@ Avoid claiming:
 - The strict official-ready ranker still returned `row_count=0`; no official
   eval was run for xsv patch6 or zip usage_patch4, and this is not an official
   breakthrough.
+- `chroma` gained explicit official-eval resource controls in the manual
+  no-external `file_bridge` harness: official-eval timeout, Docker command
+  timeout, worker counts, Docker CPU limit, branch retry count, and force mode.
+  A bounded official retry for `restore_patch3_generalization_probe` kept the
+  ReBuilder `file_bridge` path active, repackaged the same no-external
+  candidate, and then timed out after 2400 seconds without an official eval
+  JSON. The fresh aggregate-only failure report was written at
+  `runs\file_bridge_no_external_chroma_20260521_restore_patch3_generalization_probe_submission\file_bridge_no_external_chroma_20260521_restore_patch3_generalization_probe_eval\official_eval_failure_report.json`
+  with `timeout_seconds=2400`, `eval_json.exists=false`, one stopped
+  ProgramBench eval container, and one removed compiled `chroma` image. This is
+  still an official-eval operations blocker, not an official aggregate
+  improvement.
 
 ### Verification
 
@@ -2587,6 +2599,18 @@ Avoid claiming:
   completed through the ReBuilder `file_bridge` provider with local exploration
   `92/92`, holdout `10/13`, and only `archive_compression` probe axes. It
   skipped official eval because holdout was below `0.8`.
+- `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp C:\tmp\rebuilder_chroma_harness_full_20260523 tests\test_chroma_file_bridge_harness.py`
+  -> `8 passed`.
+- `.\.venv\Scripts\python.exe -m py_compile output\file_bridge_manual\run_chroma_file_bridge.py tests\test_chroma_file_bridge_harness.py`
+  passed.
+- `python -m ruff check --no-cache output\file_bridge_manual\run_chroma_file_bridge.py tests\test_chroma_file_bridge_harness.py`
+  passed.
+- `.\.venv\Scripts\python.exe output\file_bridge_manual\run_chroma_file_bridge.py restore_patch3_generalization_probe --run-official-eval --official-eval-timeout-seconds 2400 --docker-command-timeout-seconds 300 --workers 1 --branch-workers 1 --docker-cpus 2 --branch-retries 0 --force --pull`
+  completed local packaging through the ReBuilder `file_bridge` provider with
+  local exploration `68/70`, holdout `46/46`, then timed out during ProgramBench
+  official eval without producing
+  `alecthomas__chroma.8d04def.eval.json`; cleanup stopped one matching
+  ProgramBench container and removed one matching compiled image.
 - `.\.venv\Scripts\python.exe scripts\rank_programbench_candidates.py --runs runs --official-eval-root runs\programbench_official_eval --baseline-root baselines\programbench --official-eligible-only --allow-existing-official --latest-per-task --require-runtime-smoke-dimensions args,input_files,stdin --max-local-holdout-gap 0.15 --format json`
   returned `row_count=0`.
 
@@ -2599,12 +2623,16 @@ Useful public phrasing:
 > locally through that path, but it only matched the previous holdout result and
 > did not clear the strict official-ready gate. We also removed non-archive
 > adaptive probe domains from the zip harness; that produced cleaner local probe
-> coverage but a worse holdout aggregate, so no official aggregate claim is made.
+> coverage but a worse holdout aggregate. A bounded chroma official retry kept
+> the same no-external bridge boundary and improved operational evidence, but
+> ProgramBench timed out without an official eval JSON, so no official aggregate
+> claim is made.
 
 Avoid claiming:
 
 - that xsv `restore_patch6` has a new official score;
 - that zip `usage_patch4_domain_filter` has a new official score;
+- that chroma `restore_patch3_generalization_probe` has a new official score;
 - that xsv is solved or almost solved in official aggregate terms;
 - that external LLMs were used for this official-test path;
 - that hidden official case details informed the repair.
