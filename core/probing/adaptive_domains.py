@@ -513,7 +513,8 @@ def csv_table_probes() -> list[TestCase]:
             description=axis(
                 "csv_table",
                 "frequency_stable_order",
-                "frequency output count ordering and tie stability",
+                "frequency output count ordering and exact observed tie order; "
+                "do not assume first-seen or lexical ties",
             ),
         ),
         TestCase(

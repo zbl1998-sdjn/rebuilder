@@ -287,11 +287,15 @@ def test_csv_profile_exposes_xsv_subcommand_and_sample_guidance():
     assert "index file" in implementation_prompt
     assert "documented positional arity" in implementation_prompt
     assert "tie stability" in implementation_prompt
+    assert "exact observed tie stability" in implementation_prompt
+    assert "first-seen" in implementation_prompt
+    assert "alphabetical" in implementation_prompt
     assert "reservoir sampling" in implementation_prompt
     assert "allowed-variants list" in repair_prompt
     assert "generated sidecar file names" in repair_prompt
     assert "usage arity" in repair_prompt
     assert "tie handling" in repair_prompt
+    assert "global tie-order rule" in repair_prompt
     assert "Python random defaults" in repair_prompt
 
 

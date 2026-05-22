@@ -40,8 +40,9 @@ implementation_playbook:
 - For sample-like commands, model whether observations require deterministic seeded
   sampling, reservoir sampling, or contract-specific replay; preserve headers and
   row order exactly.
-- For frequency-like commands, preserve field order, count-desc ordering, and observed
-  tie stability instead of blindly sorting tied values lexicographically.
+- For frequency-like commands, preserve field order, count-desc ordering, and exact
+  observed tie stability within each field; do not assume first-seen, alphabetical,
+  or lexical tie order unless observations prove it.
 - Preserve output delimiter, quoting mode, empty fields, record order, and final newline
   exactly as shown in contracts.
 repair_playbook:
@@ -56,7 +57,8 @@ repair_playbook:
 - For join failures, compare usage arity and invalid-argument diagnostics before adding
   permissive fallback behavior.
 - For frequency failures, compare field iteration order and tie handling within a field
-  before changing global sort logic.
+  before changing global sort logic; do not promote first-seen or lexical ordering into
+  a global tie-order rule when observations conflict.
 - For sample failures, compare header retention, deterministic seed behavior, reservoir-vs-index
   sampling, selected row order, and whether stdin/file input changes randomness.
 - When stderr differs, copy observed CSV parse diagnostics and missing-column wording
@@ -80,4 +82,6 @@ anti_patterns:
   will break.
 - Do not strip or collapse whitespace in fields unless observed behavior proves it.
 - Do not sort subcommands or enum variants unless the reference output sorts them.
+- Do not treat first-seen or lexicographic frequency tie order as a general rule when
+  reference observations conflict.
 - Do not use Python random defaults for sampling when observed outputs are deterministic.

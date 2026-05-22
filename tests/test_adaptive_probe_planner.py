@@ -100,6 +100,11 @@ def test_csv_table_profile_generates_smoke_contract_probes():
     assert "smoke_contract:csv_table.frequency_stable_order" in descriptions
     assert "smoke_contract:csv_table.index_file_output" in descriptions
     assert "smoke_contract:csv_table.join_cross_invalid_arity" in descriptions
+    frequency_probe = next(
+        probe for probe in probes if probe.name == "adaptive_csv_table_frequency_stable_order"
+    )
+    assert "exact observed tie order" in frequency_probe.description
+    assert "do not assume first-seen or lexical ties" in frequency_probe.description
     assert any('"x,y"' in probe.stdin for probe in probes)
     assert any(probe.input_files.get("input.csv") for probe in probes)
     assert any(probe.input_files.get("data.csv") for probe in probes)
