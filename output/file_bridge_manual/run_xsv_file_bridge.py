@@ -938,6 +938,106 @@ HANDLERS["frequency"] = cmd_frequency
 '''
 
 
+PATCH7_SOURCE = r'''
+
+# --- ReBuilder no-external xsv restore_patch7 no-headers frequency repair ---
+
+_patch7_previous_cmd_frequency = HANDLERS["frequency"]
+
+
+def cmd_frequency(args):
+    select = None
+    limit = None
+    ascending = False
+    no_nulls = False
+    no_headers = False
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-s", "--select") and i + 1 < len(args):
+            select = args[i + 1]
+            i += 2
+        elif token.startswith("--select="):
+            select = token.split("=", 1)[1]
+            i += 1
+        elif token in ("-l", "--limit") and i + 1 < len(args):
+            limit = int(args[i + 1])
+            i += 2
+        elif token.startswith("--limit="):
+            limit = int(token.split("=", 1)[1])
+            i += 1
+        elif token in ("-a", "--asc"):
+            ascending = True
+            i += 1
+        elif token == "--no-nulls":
+            no_nulls = True
+            i += 1
+        elif token in ("-n", "--no-headers"):
+            no_headers = True
+            i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]
+            i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]
+            i += 1
+        elif token in ("-j", "--jobs") and i + 1 < len(args):
+            i += 2
+        elif token.startswith("--jobs="):
+            i += 1
+        elif token in ("-o", "--output"):
+            return _patch7_previous_cmd_frequency(args)
+        else:
+            files.append(token)
+            i += 1
+    filepath = files[0] if files else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return "", "", 0
+    if no_headers:
+        max_width = max((len(row) for row in rows), default=0)
+        if max_width == 0:
+            return "", "", 0
+        header = [str(index + 1) for index in range(max_width)]
+        data = rows
+    elif len(rows) < 2:
+        return "", "", 0
+    else:
+        header = rows[0]
+        data = rows[1:]
+    cols = resolve_col(header, select) if select else list(range(len(header)))
+    out_lines = ["field,value,count"]
+    for ci in cols:
+        fname = header[ci] if ci < len(header) else str(ci + 1)
+        freq = {}
+        first_seen = {}
+        for row_index, row in enumerate(data):
+            val = row[ci] if ci < len(row) else ""
+            if no_nulls and val == "":
+                continue
+            freq[val] = freq.get(val, 0) + 1
+            first_seen.setdefault(val, row_index)
+        if filepath is None:
+            tie_key = lambda item: first_seen[item[0]]
+        else:
+            tie_key = lambda item: item[0]
+        if ascending:
+            sorted_items = sorted(freq.items(), key=lambda item: (item[1], tie_key(item)))
+        else:
+            sorted_items = sorted(freq.items(), key=lambda item: (-item[1], tie_key(item)))
+        if limit is not None and limit > 0:
+            sorted_items = sorted_items[:limit]
+        for val, cnt in sorted_items:
+            out_lines.append(f"{fname},{val},{cnt}")
+    return "\n".join(out_lines) + "\n", "", 0
+
+
+HANDLERS["frequency"] = cmd_frequency
+'''
+
+
 def _load_observed_subcommand_help_texts() -> dict[str, str]:
     help_texts: dict[str, str] = {}
     for records_dir in (PRIOR_EVIDENCE_RECORDS, RESTORE_PATCH2_EVIDENCE_RECORDS):
@@ -1026,6 +1126,13 @@ def _patch_source_for_variant(variant: str) -> str:
             f"{PATCH_SOURCE.rstrip()}\n{PATCH2_SOURCE.rstrip()}\n"
             f"{PATCH3_SOURCE.rstrip()}\n{PATCH4_SOURCE.rstrip()}\n"
             f"{PATCH6_SOURCE.rstrip()}\n{_observed_help_patch_source()}"
+        )
+    if variant == "restore_patch7":
+        return (
+            f"{PATCH_SOURCE.rstrip()}\n{PATCH2_SOURCE.rstrip()}\n"
+            f"{PATCH3_SOURCE.rstrip()}\n{PATCH4_SOURCE.rstrip()}\n"
+            f"{PATCH6_SOURCE.rstrip()}\n{PATCH7_SOURCE.rstrip()}\n"
+            f"{_observed_help_patch_source()}"
         )
     raise ValueError(f"unknown variant: {variant}")
 
@@ -1192,7 +1299,7 @@ controller:
 def _run_date_for_variant(variant: str) -> str:
     if variant == "restore_patch1":
         return "20260520"
-    if variant in {"restore_patch5", "restore_patch6"}:
+    if variant in {"restore_patch5", "restore_patch6", "restore_patch7"}:
         return "20260522"
     return "20260521"
 
@@ -1275,6 +1382,7 @@ def run_variant(variant: str, *, official_eval: bool = False, pull: bool = False
         "restore_patch4",
         "restore_patch5",
         "restore_patch6",
+        "restore_patch7",
     }:
         print(f"unknown variant: {variant}", file=sys.stderr)
         return 2

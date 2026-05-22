@@ -2575,6 +2575,18 @@ Avoid claiming:
   ProgramBench eval container, and one removed compiled `chroma` image. This is
   still an official-eval operations blocker, not an official aggregate
   improvement.
+- `xsv` gained a narrow `restore_patch7` repair for the public
+  `frequency -n/--no-headers` behavior: the first row is counted as data and
+  fields are labeled with 1-based column numbers. The change was proposed by a
+  read-only helper audit and implemented only in the no-external
+  `file_bridge` manual harness. Its local no-official run improved holdout from
+  patch6's `12/15` to `13/15`, but the official run's fresh local split landed
+  at `12/15`; it still passed the package gate and produced an official
+  aggregate baseline upgrade. The official aggregate result for
+  `submission_xsv_restore_patch7_20260522` was counted `590/1186`, score `50`
+  (raw `671/1317`, score `51`), improving the recorded counted baseline from
+  score `44` to score `50`. This is an official baseline upgrade, not a solved
+  task.
 
 ### Verification
 
@@ -2611,6 +2623,23 @@ Avoid claiming:
   official eval without producing
   `alecthomas__chroma.8d04def.eval.json`; cleanup stopped one matching
   ProgramBench container and removed one matching compiled image.
+- `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp C:\tmp\rebuilder_xsv_patch7_green tests\test_xsv_file_bridge_harness.py::test_restore_patch7_frequency_no_headers_counts_first_row_as_data`
+  first failed before implementation with `ValueError: unknown variant:
+  restore_patch7`, then passed after the patch.
+- `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp C:\tmp\rebuilder_xsv_patch7_tests tests\test_xsv_file_bridge_harness.py`
+  -> `10 passed`.
+- `.\.venv\Scripts\python.exe -m py_compile output\file_bridge_manual\run_xsv_file_bridge.py tests\test_xsv_file_bridge_harness.py`
+  passed.
+- `python -m ruff check --no-cache output\file_bridge_manual\run_xsv_file_bridge.py tests\test_xsv_file_bridge_harness.py`
+  passed.
+- `.\.venv\Scripts\python.exe output\file_bridge_manual\run_xsv_file_bridge.py restore_patch7 --pull`
+  completed through the ReBuilder `file_bridge` provider with local exploration
+  `101/102`, holdout `13/15`, package gate passed, and no official eval.
+- `.\.venv\Scripts\python.exe output\file_bridge_manual\run_xsv_file_bridge.py restore_patch7 --pull --official-eval`
+  completed through the same no-external `file_bridge` provider; the official
+  aggregate eval wrote counted `590/1186`, score `50`, raw `671/1317`, score
+  `51`, and updated
+  `baselines\programbench\burntsushi__xsv.f430466.baseline.json`.
 - `.\.venv\Scripts\python.exe scripts\rank_programbench_candidates.py --runs runs --official-eval-root runs\programbench_official_eval --baseline-root baselines\programbench --official-eligible-only --allow-existing-official --latest-per-task --require-runtime-smoke-dimensions args,input_files,stdin --max-local-holdout-gap 0.15 --format json`
   returned `row_count=0`.
 
@@ -2625,8 +2654,10 @@ Useful public phrasing:
 > adaptive probe domains from the zip harness; that produced cleaner local probe
 > coverage but a worse holdout aggregate. A bounded chroma official retry kept
 > the same no-external bridge boundary and improved operational evidence, but
-> ProgramBench timed out without an official eval JSON, so no official aggregate
-> claim is made.
+> ProgramBench timed out without an official eval JSON. A subsequent xsv
+> `frequency -n` public-behavior repair did produce an official aggregate
+> baseline upgrade, moving counted score from 44 to 50, while still remaining
+> far from a solved task.
 
 Avoid claiming:
 

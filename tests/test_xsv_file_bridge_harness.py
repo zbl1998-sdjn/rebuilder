@@ -114,6 +114,26 @@ def test_restore_patch6_stdin_frequency_ties_preserve_first_seen(tmp_path: Path)
     )
 
 
+def test_restore_patch7_frequency_no_headers_counts_first_row_as_data(tmp_path: Path) -> None:
+    (tmp_path / "data.csv").write_text(
+        "red,S\nblue,M\nred,L\nred,S\n",
+        encoding="utf-8",
+    )
+
+    result = run_generated(tmp_path, ["frequency", "-n", "data.csv"], variant="restore_patch7")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "field,value,count\n"
+        "1,red,3\n"
+        "1,blue,1\n"
+        "2,S,2\n"
+        "2,L,1\n"
+        "2,M,1\n"
+    )
+
+
 def test_index_without_input_uses_reference_usage_diagnostic(tmp_path: Path) -> None:
     result = run_generated(tmp_path, ["index"])
 
