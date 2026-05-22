@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-20T14:13:50.160139+00:00",
+  "recorded_at": "2026-05-22T14:20:52.939011+00:00",
   "instance_id": "rbakbashev__elfcat.52f8cc7",
-  "model": "codex-file-bridge-elfcat-reference_html_patch1",
-  "config_path": "C:\\Users\\Administrator\\Desktop\\ReBuilder\\output\\file_bridge_manual\\smoke_file_bridge_elfcat_reference_html_patch1.yaml",
-  "notes": "Official closed-loop aggregate baseline: 316/564 counted tests, score 56; raw eval 390/646; aggregate-only.",
+  "model": "codex-file-bridge-elfcat-reference_html_patch4",
+  "config_path": "C:\\Users\\Administrator\\Desktop\\ReBuilder\\output\\file_bridge_manual\\smoke_file_bridge_elfcat_reference_html_patch4.yaml",
+  "notes": "Official closed-loop aggregate baseline: 371/564 counted tests, score 66; raw eval 445/646; aggregate-only.",
   "local": {
-    "status": "failed",
-    "resolved_rate": 0.8151260504201681,
-    "holdout_resolved_rate": 0.8333333333333334,
+    "status": "success",
+    "resolved_rate": 1.0,
+    "holdout_resolved_rate": 0.9444444444444444,
     "probes_conducted": 73,
     "iterations_used": 0
   },
   "official": {
-    "passed_tests": 316,
+    "passed_tests": 371,
     "total_tests": 564,
-    "pass_rate": 0.5602836879432624,
-    "score": 56,
+    "pass_rate": 0.6578014184397163,
+    "score": 66,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_official_eval\\submission_elfcat_reference_html_patch1_20260520\\rbakbashev__elfcat.52f8cc7\\submission.tar.gz",
-    "sha256": "6c6c56e9837d06dd5e52b8a0c936883a3c2e4504b40f6a8414876d5d0564dddb"
+    "path": "runs\\programbench_official_eval\\submission_elfcat_reference_html_patch4_20260522\\rbakbashev__elfcat.52f8cc7\\submission.tar.gz",
+    "sha256": "1ed17b9d3c85b4b987a0f92be921e63cf42a169fa756f8a92eb91d9d1b35dbf9"
   }
 }

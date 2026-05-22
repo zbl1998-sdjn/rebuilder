@@ -4,6 +4,88 @@ This file collects publishable source material from ReBuilder development work.
 It intentionally avoids hidden ProgramBench failure details, raw prompts, API
 keys, and non-aggregate official eval evidence.
 
+## 2026-05-22 Elfcat Patch4 Official Aggregate Upgrade
+
+### Publishable Summary
+
+This pass continued the no-external-LLM official-standard route inside
+ReBuilder's `file_bridge` architecture for `rbakbashev__elfcat.52f8cc7`.
+No Kimi, GLM, local OpenAI endpoint, or external LLM API was used for candidate
+generation or evaluation handoff. The candidate stayed inside the local
+ReBuilder harness and was then packaged for the official ProgramBench evaluator.
+
+The first follow-up, `reference_html_patch3`, remained strong locally but did
+not produce an official aggregate. Local ReBuilder evidence was exploration
+`119/119`, holdout `17/18`, with runtime smoke covering
+`args/default/input_files/stdin`. ProgramBench official eval timed out after
+`3600` seconds without writing an eval JSON, so it is recorded only as an
+official-eval operational failure.
+
+`reference_html_patch4` addressed the operational risk by bounding the HTML
+bytes panel for large files. For files larger than the configured limit, the
+renderer keeps the header byte spans but does not emit a full-file highlighted
+byte panel. This is a public performance/generalization hardening change; it
+does not rely on hidden official failure details.
+
+The patch4 official ProgramBench aggregate completed. Counted result was
+`371/564`, score `66`; raw result was `445/646`, score `69`. This upgrades the
+recorded `elfcat` official aggregate baseline from score `56` to score `66`.
+It is still not a solved task and should not be described as fully resolved.
+
+### Evidence
+
+- Local no-external result:
+  `runs\file_bridge_no_external_elfcat_20260522_reference_html_patch4\rbakbashev__elfcat.52f8cc7\generated\rbakbashev__elfcat.52f8cc7\rbakbashev__elfcat.52f8cc7\result.json`
+  with exploration `119/119`, holdout `17/18`, and provider `file_bridge`.
+- Official aggregate eval JSON:
+  `runs\programbench_official_eval\submission_elfcat_reference_html_patch4_20260522\rbakbashev__elfcat.52f8cc7\rbakbashev__elfcat.52f8cc7.eval.json`.
+- Baseline record:
+  `baselines\programbench\rbakbashev__elfcat.52f8cc7.baseline.json`
+  now records model `codex-file-bridge-elfcat-reference_html_patch4`, counted
+  `371/564`, score `66`, raw `445/646`, score `69`, and submission SHA-256
+  `1ed17b9d3c85b4b987a0f92be921e63cf42a169fa756f8a92eb91d9d1b35dbf9`.
+- Patch3 failure report:
+  `runs\programbench_official_eval\submission_elfcat_reference_html_patch3_20260521\official_eval_failure_report.json`
+  records an official eval attempt without an aggregate eval JSON.
+- Strict official-ready ranking after the patch4 baseline update still
+  returned `row_count=0`; the same candidate is now blocked by
+  `official_not_above_baseline`, meaning it equals the current recorded
+  baseline.
+
+### Verification
+
+- `.\.venv\Scripts\python.exe -m py_compile output\file_bridge_manual\run_elfcat_file_bridge.py tests\test_elfcat_file_bridge_harness.py`
+  passed.
+- `python -m ruff check --no-cache output\file_bridge_manual\run_elfcat_file_bridge.py tests\test_elfcat_file_bridge_harness.py`
+  passed.
+- Elevated focused pytest:
+  `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp C:\tmp\rebuilder_elfcat_patch4_pytest_20260522 tests\test_elfcat_file_bridge_harness.py`
+  -> `12 passed`.
+- Local runner:
+  `.\.venv\Scripts\python.exe output\file_bridge_manual\run_elfcat_file_bridge.py reference_html_patch4 --force --pull`
+  reached exploration `119/119`, holdout `17/18`, and runtime smoke
+  `args/default/input_files/stdin`.
+- Official runner:
+  `.\.venv\Scripts\python.exe output\file_bridge_manual\run_elfcat_file_bridge.py reference_html_patch4 --official-eval --force --pull`
+  produced the counted `371/564`, score `66` official aggregate.
+
+### Safe External Narrative
+
+Useful public phrasing:
+
+> We kept the `elfcat` follow-up on ReBuilder's no-external `file_bridge`
+> route, bounded a large-file HTML rendering path, and completed a new
+> ProgramBench official aggregate eval. The counted baseline improved from
+> score 56 to score 66, while the task remains unsolved.
+
+Avoid claiming:
+
+- that `elfcat` is solved, fully resolved, or almost resolved;
+- that hidden official failure details were used for the repair;
+- that patch3 produced an official score;
+- that local exploration/holdout results are equivalent to official aggregate
+  evidence.
+
 ## 2026-05-22 Xsv Local-Generalization Gate Stop
 
 ### Publishable Summary
@@ -1919,9 +2001,11 @@ plain.
   official aggregate baseline upgrade over the previous elfcat score-38 record,
   but it is still not a solved task.
 - Baseline record: `baselines\programbench\rbakbashev__elfcat.52f8cc7.baseline.json`
-  now records model `codex-file-bridge-elfcat-reference_html_patch1`, counted
+  then recorded model `codex-file-bridge-elfcat-reference_html_patch1`, counted
   `316/564`, score `56`, and submission SHA-256
   `6c6c56e9837d06dd5e52b8a0c936883a3c2e4504b40f6a8414876d5d0564dddb`.
+  The current baseline was later upgraded by `reference_html_patch4` to score
+  `66`.
 - Difficulties:
   - strict ranking before official eval reported
     `missing_official_candidate_summary` because existing-baseline upgrades now
@@ -2158,6 +2242,11 @@ Useful public phrasing:
 > again, from score 38 to score 56. It is still not solved, but it is a clean
 > aggregate upgrade with publishable local repair and difficulty records.
 
+> A later bounded-rendering `elfcat` follow-up stayed on the same no-external
+> path and improved the counted official aggregate baseline again, from score
+> 56 to score 66. The task remains unsolved, but the improvement is backed by
+> an official aggregate eval JSON and a reproducible local gate.
+
 > A later `csview` restore-axis follow-up used a local subagent through
 > ReBuilder's `file_bridge` provider, preserved sparse file-input contracts in
 > runtime smoke, and produced an official aggregate baseline upgrade from score
@@ -2192,7 +2281,8 @@ Avoid claiming:
 - that local holdout or replay results are equivalent to official hidden tests;
 - that external Kimi K2.6 was used in this run;
 - that the `elfcat` result is fully resolved or close to solved; the current
-  aggregate baseline is score 56, upgraded from the earlier score-38 record,
+  aggregate baseline is score 66, upgraded from the earlier score-38 and
+  score-56 records,
   but it remains neither `fully_resolved` nor `almost_resolved`;
 - that the earlier `clog` restore-axis retry produced an official score; it
   stopped at holdout `14/18` and official eval was skipped;

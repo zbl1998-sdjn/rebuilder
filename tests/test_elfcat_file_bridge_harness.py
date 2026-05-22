@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS_PATH = ROOT / "output" / "file_bridge_manual" / "run_elfcat_file_bridge.py"
-PATCH_VARIANT = "reference_html_patch3"
+PATCH_VARIANT = "reference_html_patch4"
 
 
 def load_harness():
@@ -397,3 +397,24 @@ def test_reference_html_patch_reports_directory_input_like_reference(tmp_path: P
     assert result.returncode == 1
     assert result.stdout == ""
     assert result.stderr == 'Failed to read file "dir": Is a directory (os error 21)\n'
+
+
+def test_reference_html_patch_bounds_large_file_byte_panel(tmp_path: Path) -> None:
+    harness = load_harness()
+    main_py = tmp_path / "main.py"
+    main_py.write_text(
+        extract_main_py(harness.implementation_artifact(PATCH_VARIANT)),
+        encoding="utf-8",
+    )
+    large_payload = elf64_header() + (b"\x00" * (256 * 1024))
+    (tmp_path / "large.elf").write_bytes(large_payload)
+
+    result = run_main(main_py, ["large.elf"], tmp_path)
+
+    assert result.returncode == 0
+    html_text = (tmp_path / "large.elf.html").read_text(encoding="utf-8")
+    bytes_start = html_text.index("<div id='bytes'>") + len("<div id='bytes'>")
+    bytes_end = html_text.index("</div>\n    <div id='ascii'>", bytes_start)
+    bytes_panel = html_text[bytes_start:bytes_end]
+    assert len(bytes_panel) < 5000
+    assert "<span class='ehdr'>" in bytes_panel

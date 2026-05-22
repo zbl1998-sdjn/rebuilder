@@ -13,9 +13,32 @@ task_cleanroom image -> probe reference -> synthesize spec -> design architectur
 -> generate replacement -> differential test -> repair -> holdout gate -> package/report
 ```
 
-但它还没有到“泛化稳定”阶段。当前已经拿到多项官方 aggregate 基线，包括 zoxide 37、go-mod-outdated 94、htmlq 91、cmatrix 95、csview 87、chmln sd 86、nnn 79、gron 62、clog-cli 45、xsv 44、zip-password-finder 40、elfcat 38，以及历史低样本的 chroma 3；接下来的重点是继续扩展跨任务信号，而不是只追单任务 exploration。
+但它还没有到“泛化稳定”阶段。当前已经拿到多项官方 aggregate 基线，包括 zoxide 37、go-mod-outdated 94、htmlq 91、cmatrix 95、csview 87、chmln sd 86、nnn 79、elfcat 66、gron 62、clog-cli 45、xsv 44、zip-password-finder 40，以及历史低样本的 chroma 3；接下来的重点是继续扩展跨任务信号，而不是只追单任务 exploration。
 
-最新重要增量：2026-05-22 继续按 no-external `file_bridge` 路径复核
+最新重要增量：2026-05-22 继续按用户要求的 no-external `file_bridge` /
+子代理路径推进 `rbakbashev__elfcat.52f8cc7`，没有调用 Kimi/GLM/外部 LLM，
+只把推理和实现放在 ReBuilder 本地官方标准闭环内。先复跑
+`reference_html_patch3` 官方 eval：本地仍为 exploration `119/119`、holdout
+`17/18`，但 ProgramBench official eval 在 `3600` 秒后没有写出 `.eval.json`，
+只生成 `official_eval_failure_report.json`，因此 patch3 仍只能作为 official-eval
+operational failure 证据，不能算官方分数。
+
+随后按 TDD 增加 `reference_html_patch4`：大文件场景下把 HTML bytes panel 限制为
+header-only，避免对完整文件做超大字节 span 渲染；新增大文件回归先红后绿。验证：
+`py_compile` 通过，`python -m ruff check --no-cache ...` 通过，提升权限 focused
+pytest `tests\test_elfcat_file_bridge_harness.py` 为 `12 passed`。本地
+no-external ReBuilder gate 为 exploration `119/119`、holdout `17/18`，runtime
+smoke 覆盖 `args/default/input_files/stdin`。ProgramBench official eval 完成：
+counted `371/564`、score `66`；raw `445/646`、score `69`。这把 elfcat 官方
+aggregate baseline 从 score `56` 升到 `66`，但仍不是 solved/fully resolved。
+baseline 已更新到
+`baselines\programbench\rbakbashev__elfcat.52f8cc7.baseline.json`，submission
+SHA-256 为 `1ed17b9d3c85b4b987a0f92be921e63cf42a169fa756f8a92eb91d9d1b35dbf9`。
+更新后 strict official-ready ranker 仍为 `row_count=0`；当前候选被
+`official_not_above_baseline` 阻断，说明它已经等于最新记录 baseline，而不是还有
+可重复提交的 ready 行。不要在交接或公开材料里写 hidden official case 细节。
+
+此前重要增量：2026-05-22 继续按 no-external `file_bridge` 路径复核
 `burntsushi__xsv.f430466` 的本地泛化缺口。本轮仍没有使用 Kimi/GLM/外部 LLM；
 推理响应只通过 ReBuilder 的本地 `file_bridge` harness 写入 request/response 文件。
 先补了 official closed-loop/runner 侧 gate：`0/0` 或缺 `.eval.json` 的 ProgramBench
@@ -51,8 +74,9 @@ no-external 闭环仍为 exploration `119/119`、holdout `17/18`、runtime smoke
 `ERROR: RuntimeError`、`raw=0/0 score=0`、`counted=0/0 score=0`，且没有写出
 `.eval.json`。父进程退出后遗留的高 CPU `programbench-e32a14c79e32` 容器已手动
 停止。因此 patch3 只能作为本地性能风险修复和 official-eval operational failure
-证据，不能作为官方 aggregate breakthrough；elfcat recorded baseline 仍是 counted
-`316/564`、score `56`。修复与困难记录已写入
+证据，不能作为官方 aggregate breakthrough；当时 elfcat recorded baseline 仍是
+counted `316/564`、score `56`，后续 2026-05-22 `reference_html_patch4` 已把
+当前记录 baseline 升到 score `66`。修复与困难记录已写入
 `docs\public-release-materials.md` 的
 `2026-05-21 Elfcat Reference HTML Patch3 Official Eval Error` 小节。
 随后补修了 closed-loop official runner：`scripts\run_official_closed_loop.py`
@@ -618,7 +642,7 @@ repair 现在基于 exploration failure clusters。下一步应增加：
 - 真实 runs 复核：普通 `--official-eligible-only --latest-per-task` 仍为空；`--allow-existing-official` 可显示 `clog-cli` 与 `nnn` 当前 baseline 级候选，但再叠加 `--require-holdout-improvement --min-holdout-improvement-delta 0.02` 后仍为空。因此当前还没有新的可提交官方评测候选。
 - 尝试执行推荐的 `hexyl` local-only rerun 时，外部安全审查阻止了 `--execute`，原因是该流程会把本地提示/代码上下文发送给外部 LLM 服务并写 run 产物；本轮没有绕过该限制，也没有触发官方评测。
 - 新增 `scripts/audit_official_baseline_candidates.py`，用于只读比较已有 `*.eval.json` 官方 aggregate 结果和 `baselines/programbench` 记录。它发现并补记了两个历史低样本官方非零 baseline：`rbakbashev__elfcat.52f8cc7` score 17（96/564 counted，本地 holdout 只有 2 cases）和 `alecthomas__chroma.8d04def` score 3（13/515 counted，本地 holdout 只有 5 cases）。补记后 actionable 审计表为空；这些记录是历史 aggregate 证据，不是当前 80% gate 下的新提交候选。
-- 新增 `scripts/plan_official_breakthrough_targets.py`，把 recorded official baseline aggregate 分数与本地 latest/best reliable holdout trend 合并，输出 cleanroom-safe 的官方突破目标队列。当时真实 runs 优先级为：`clog-cli`、`nnn` 属于 `ready_baseline_gate`；`htmlq`、`go-mod-outdated`、`gron`、`zip-password-finder`、`xsv`、`csview`、`cmatrix` 属于 `restore_historical_gate`；`zoxide` 属于 `weak_cleanroom_rerun`；`chroma`、`elfcat` 只有历史低样本官方 baseline 且缺可靠 holdout。2026-05-20 后 `elfcat` 已补可靠 holdout 并升级到官方 aggregate score 38；该脚本仍只读 baseline 的 official score/counts 与 `result.json` 的 holdout aggregate，不读取 hidden/detail failure。
+- 新增 `scripts/plan_official_breakthrough_targets.py`，把 recorded official baseline aggregate 分数与本地 latest/best reliable holdout trend 合并，输出 cleanroom-safe 的官方突破目标队列。当时真实 runs 优先级为：`clog-cli`、`nnn` 属于 `ready_baseline_gate`；`htmlq`、`go-mod-outdated`、`gron`、`zip-password-finder`、`xsv`、`csview`、`cmatrix` 属于 `restore_historical_gate`；`zoxide` 属于 `weak_cleanroom_rerun`；`chroma`、`elfcat` 只有历史低样本官方 baseline 且缺可靠 holdout。后续 `elfcat` 已补可靠 holdout，并经过 no-external `file_bridge` 迭代把官方 aggregate baseline 升到 score 66；该脚本仍只读 baseline 的 official score/counts 与 `result.json` 的 holdout aggregate，不读取 hidden/detail failure。
 - `plan_official_breakthrough_targets.py --include-next-command` 已补齐 restore 行命令：对历史 best `result.json` 生成 `audit_official_eval_gate.py ... --allow-existing-official`，用于确认旧 best 仍是本地 aggregate baseline-upgrade 候选。已实际审计 `htmlq`、`gron`、`xsv`、`zip-password-finder` 的历史 best，均返回 `eligible_baseline_upgrade`；这说明下一步重点应是恢复/ablate 历史 best 机制，而不是提交最新退化 run。
 - `plan_official_breakthrough_targets.py` 新增 `--include-restore-ablation-command`，可把 restore 行的 next command 从历史 best 审计切换为 guarded `run_official_strategy_ablation.py --dry-run`。真实 runs 下已输出 `htmlq`、`go-mod-outdated`、`gron`、`zip-password-finder`、`xsv`、`csview`、`cmatrix` 的 dry-run ablation 命令，均带 `--skip-official-eval`、`--require-holdout-improvement`、`--holdout-history-root runs`、`--max-generalization-risk low` 和 smoke-axis gate。
 - 新增 `scripts/run_restore_axis_ablation_batch.py`，作为 restore-axis 批量入口。它只选择 aggregate-only planner 中的 `restore_historical_gate` 行，默认只打印 guarded strategy ablation 命令；只有显式 `--execute` 才会调用子进程。真实 runs 下 dry-run smoke 已输出 7 个 restore 目标命令，未执行外部 LLM、Docker 或 official eval。
