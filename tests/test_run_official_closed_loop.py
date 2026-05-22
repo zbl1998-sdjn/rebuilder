@@ -20,6 +20,7 @@ from scripts.run_official_closed_loop import (
     run_command,
     run_programbench_eval,
     select_strategy_variant,
+    summarize_eval,
     holdout_cases,
     holdout_rate,
     is_local_llm_config,
@@ -376,6 +377,37 @@ def test_run_programbench_eval_cleans_matching_containers_after_failed_eval_with
     assert payload["stopped_eval_container_ids"] == ["abc123"]
     assert payload["removed_compiled_image_refs"] == ["programbench-compiled/owner__repo.abcdef0:deadbeef"]
     assert payload["artifacts"]["eval_json"]["exists"] is False
+
+
+def test_summarize_eval_records_operational_failure_for_zero_test_eval_json(tmp_path, monkeypatch):
+    parsed = args()
+    paths = build_paths(parsed.instance_id, parsed.runs, tmp_path / "eval", "submission_owner_repo")
+    paths.eval_json.parent.mkdir(parents=True)
+    paths.eval_json.write_text(json.dumps({"test_results": []}), encoding="utf-8")
+    cleaned = []
+    image_cleaned = []
+
+    def fake_cleanup(instance_id):
+        cleaned.append(instance_id)
+        return ["abc123"]
+
+    def fake_image_cleanup(instance_id):
+        image_cleaned.append(instance_id)
+        return ["programbench-compiled/owner__repo.abcdef0:deadbeef"]
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.cleanup_programbench_eval_containers", fake_cleanup)
+    monkeypatch.setattr("scripts.run_official_closed_loop.cleanup_programbench_eval_images", fake_image_cleanup)
+
+    with pytest.raises(RuntimeError, match="0 counted tests"):
+        summarize_eval(paths.eval_json, parsed.instance_id, args=parsed, paths=paths, command=["py", "-3.14"])
+
+    assert cleaned == [parsed.instance_id]
+    assert image_cleaned == [parsed.instance_id]
+    report = paths.submission_root / "official_eval_failure_report.json"
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["reason"] == "official_eval_failed_without_eval_json"
+    assert "0 counted tests" in payload["error"]
+    assert payload["artifacts"]["eval_json"]["exists"] is True
 
 
 def test_cleanup_programbench_eval_containers_stops_only_matching_instance(monkeypatch):

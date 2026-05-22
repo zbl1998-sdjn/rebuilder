@@ -887,12 +887,38 @@ def run_programbench_eval(args: argparse.Namespace, paths: ClosedLoopPaths) -> N
         raise missing_error
 
 
-def summarize_eval(eval_json: Path, instance_id: str) -> tuple[int, int, int, int]:
+def summarize_eval(
+    eval_json: Path,
+    instance_id: str,
+    *,
+    args: argparse.Namespace | None = None,
+    paths: ClosedLoopPaths | None = None,
+    command: list[str] | None = None,
+) -> tuple[int, int, int, int]:
     if not eval_json.exists():
         raise FileNotFoundError(f"missing ProgramBench eval JSON: {eval_json}")
     parser = ProgramBenchEvalParser()
     raw = parser.parse(eval_json)
     counted = parser.parse(eval_json, instance_id=instance_id)
+    failure_messages = []
+    if raw.error_code:
+        failure_messages.append(f"raw eval error_code={raw.error_code}")
+    if counted.error_code:
+        failure_messages.append(f"counted eval error_code={counted.error_code}")
+    if counted.total_tests <= 0:
+        failure_messages.append("0 counted tests")
+    if failure_messages:
+        error = RuntimeError(
+            f"ProgramBench official eval produced operationally invalid aggregate: {'; '.join(failure_messages)}"
+        )
+        if args is not None and paths is not None:
+            record_official_eval_failure(
+                args=args,
+                paths=paths,
+                command=command or [],
+                error=error,
+            )
+        raise error
     print(f"raw={raw.passed_tests}/{raw.total_tests} score={round(raw.score * 100)}")
     print(f"counted={counted.passed_tests}/{counted.total_tests} score={round(counted.score * 100)}")
     return raw.passed_tests, raw.total_tests, counted.passed_tests, counted.total_tests
@@ -1090,7 +1116,13 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     run_programbench_eval(args, paths)
-    raw_passed, raw_total, counted_passed, counted_total = summarize_eval(paths.eval_json, args.instance_id)
+    raw_passed, raw_total, counted_passed, counted_total = summarize_eval(
+        paths.eval_json,
+        args.instance_id,
+        args=args,
+        paths=paths,
+        command=build_programbench_eval_command(args, paths),
+    )
     write_official_summary_to_result(paths.result, paths.eval_json, args.instance_id)
     baseline_path = record_baseline(
         args=args,
