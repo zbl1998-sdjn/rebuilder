@@ -104,3 +104,70 @@ def test_generated_config_uses_file_bridge_only(tmp_path: Path) -> None:
     assert "kimi" not in config_text.lower()
     assert "glm" not in config_text.lower()
     assert "openai" not in config_text.lower()
+
+
+def test_zip_file_bridge_probe_plan_stays_archive_domain_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    harness = load_harness()
+    historical_main = tmp_path / "main.py"
+    historical_main.write_text("print('historical')\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        returncode = 0
+
+        def __init__(self, command: list[str], *, cwd: Path) -> None:
+            captured["command"] = command
+            captured["cwd"] = cwd
+
+        def poll(self) -> int:
+            return 0
+
+    monkeypatch.setattr(harness, "ROOT", tmp_path)
+    monkeypatch.setattr(harness, "HISTORICAL_MAIN", historical_main)
+    monkeypatch.setattr(harness.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(harness.time, "sleep", lambda _seconds: None)
+
+    assert harness.run_variant("usage_patch3") == 0
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    excluded_domains = [
+        str(command[index + 1])
+        for index, value in enumerate(command)
+        if value == "--adaptive-probe-exclude-domain"
+    ]
+    assert "json_transform" in excluded_domains
+    assert "archive_compression" not in excluded_domains
+
+
+def test_zip_domain_filter_variant_uses_fresh_run_name(monkeypatch, tmp_path: Path) -> None:
+    harness = load_harness()
+    historical_main = tmp_path / "main.py"
+    historical_main.write_text("print('historical')\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        returncode = 0
+
+        def __init__(self, command: list[str], *, cwd: Path) -> None:
+            captured["command"] = command
+            captured["cwd"] = cwd
+
+        def poll(self) -> int:
+            return 0
+
+    monkeypatch.setattr(harness, "ROOT", tmp_path)
+    monkeypatch.setattr(harness, "HISTORICAL_MAIN", historical_main)
+    monkeypatch.setattr(harness.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(harness.time, "sleep", lambda _seconds: None)
+
+    assert harness.run_variant("usage_patch4_domain_filter") == 0
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "runs/file_bridge_no_external_zip_20260523_usage_patch4_domain_filter" in command
+    assert "file_bridge_no_external_zip_20260523_usage_patch4_domain_filter_eval" in command
+    assert "codex-file-bridge-zip-usage_patch4_domain_filter" in command

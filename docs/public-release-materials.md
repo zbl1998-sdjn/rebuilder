@@ -2540,7 +2540,7 @@ Avoid claiming:
 - that local exploration/holdout results predict hidden official behavior;
 - that the observed `xsv frequency` tie ordering is a stable public contract.
 
-## 2026-05-23 No-External Subagent Boundary And xsv Patch6
+## 2026-05-23 No-External Subagent Boundary, xsv Patch6, And Zip Domain Filter
 
 ### Summary
 
@@ -2554,8 +2554,15 @@ Avoid claiming:
   ignored manual file_bridge harness, then ran a no-external local closed loop.
   It reached exploration `102/102` and holdout `12/15`, matching patch5's
   holdout and remaining below the strict local-gap gate.
+- A read-only helper audit recommended testing whether `zip-password-finder`
+  was being harmed by cross-domain adaptive probes. The new
+  `usage_patch4_domain_filter` path excludes non-archive adaptive domains from
+  the zip harness. The resulting no-external local closed loop contained only
+  `archive_compression` probe axes, but regressed to exploration `92/92` and
+  holdout `10/13`, so the harness correctly skipped official eval.
 - The strict official-ready ranker still returned `row_count=0`; no official
-  eval was run for xsv patch6 and this is not an official breakthrough.
+  eval was run for xsv patch6 or zip usage_patch4, and this is not an official
+  breakthrough.
 
 ### Verification
 
@@ -2570,6 +2577,16 @@ Avoid claiming:
 - `.\.venv\Scripts\python.exe output\file_bridge_manual\run_xsv_file_bridge.py restore_patch6 --pull`
   completed through the ReBuilder `file_bridge` provider with local exploration
   `102/102` and holdout `12/15`.
+- `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp C:\tmp\rebuilder_zip_harness_full_20260523 tests\test_zip_file_bridge_harness.py`
+  -> `6 passed`.
+- `.\.venv\Scripts\python.exe -m py_compile output\file_bridge_manual\run_zip_file_bridge.py tests\test_zip_file_bridge_harness.py`
+  passed.
+- `python -m ruff check --no-cache output\file_bridge_manual\run_zip_file_bridge.py tests\test_zip_file_bridge_harness.py`
+  passed.
+- `.\.venv\Scripts\python.exe output\file_bridge_manual\run_zip_file_bridge.py usage_patch4_domain_filter`
+  completed through the ReBuilder `file_bridge` provider with local exploration
+  `92/92`, holdout `10/13`, and only `archive_compression` probe axes. It
+  skipped official eval because holdout was below `0.8`.
 - `.\.venv\Scripts\python.exe scripts\rank_programbench_candidates.py --runs runs --official-eval-root runs\programbench_official_eval --baseline-root baselines\programbench --official-eligible-only --allow-existing-official --latest-per-task --require-runtime-smoke-dimensions args,input_files,stdin --max-local-holdout-gap 0.15 --format json`
   returned `row_count=0`.
 
@@ -2580,12 +2597,14 @@ Useful public phrasing:
 > We tightened ReBuilder's planner so local generalization-gap follow-ups stay
 > on the no-external `file_bridge` route by default. A new xsv patch was tested
 > locally through that path, but it only matched the previous holdout result and
-> did not clear the strict official-ready gate, so no official aggregate claim
-> is made.
+> did not clear the strict official-ready gate. We also removed non-archive
+> adaptive probe domains from the zip harness; that produced cleaner local probe
+> coverage but a worse holdout aggregate, so no official aggregate claim is made.
 
 Avoid claiming:
 
 - that xsv `restore_patch6` has a new official score;
+- that zip `usage_patch4_domain_filter` has a new official score;
 - that xsv is solved or almost solved in official aggregate terms;
 - that external LLMs were used for this official-test path;
 - that hidden official case details informed the repair.
