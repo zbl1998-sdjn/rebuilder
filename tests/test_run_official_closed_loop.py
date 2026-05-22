@@ -249,13 +249,30 @@ def test_run_command_reports_timeout(monkeypatch):
         run_command(["py", "-3.14"], timeout_seconds=12.5)
 
 
+def test_run_command_can_write_stdout_and_stderr_logs(tmp_path, monkeypatch):
+    stdout_log = tmp_path / "official_eval_stdout.log"
+    stderr_log = tmp_path / "official_eval_stderr.log"
+
+    def fake_run(command, *, text, check, env, stdout, stderr):
+        stdout.write("programbench stdout\n")
+        stderr.write("programbench stderr\n")
+        return argparse.Namespace(returncode=0)
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.subprocess.run", fake_run)
+
+    run_command(["py", "-3.14"], stdout_path=stdout_log, stderr_path=stderr_log)
+
+    assert stdout_log.read_text(encoding="utf-8") == "programbench stdout\n"
+    assert stderr_log.read_text(encoding="utf-8") == "programbench stderr\n"
+
+
 def test_run_programbench_eval_continues_when_eval_json_exists(tmp_path, monkeypatch):
     parsed = args()
     paths = build_paths(parsed.instance_id, parsed.runs, tmp_path / "eval", "submission_owner_repo")
     paths.eval_json.parent.mkdir(parents=True)
     paths.eval_json.write_text(json.dumps({"test_results": []}), encoding="utf-8")
 
-    def fake_run_command(_command):
+    def fake_run_command(_command, **_kwargs):
         raise RuntimeError("UnicodeEncodeError")
 
     monkeypatch.setattr("scripts.run_official_closed_loop.run_command", fake_run_command)
@@ -268,9 +285,11 @@ def test_run_programbench_eval_passes_configured_timeout(monkeypatch):
     paths = build_paths(parsed.instance_id, parsed.runs, "runs/eval", "submission_owner_repo")
     seen = {}
 
-    def fake_run_command(command, *, timeout_seconds):
+    def fake_run_command(command, *, timeout_seconds, stdout_path, stderr_path):
         seen["command"] = command
         seen["timeout_seconds"] = timeout_seconds
+        seen["stdout_path"] = stdout_path
+        seen["stderr_path"] = stderr_path
         paths.eval_json.parent.mkdir(parents=True, exist_ok=True)
         paths.eval_json.write_text(json.dumps({"test_results": []}), encoding="utf-8")
 
@@ -280,6 +299,8 @@ def test_run_programbench_eval_passes_configured_timeout(monkeypatch):
 
     assert seen["command"] == build_programbench_eval_command(parsed, paths)
     assert seen["timeout_seconds"] == 12.5
+    assert seen["stdout_path"] == paths.submission_root / "official_eval_stdout.log"
+    assert seen["stderr_path"] == paths.submission_root / "official_eval_stderr.log"
 
 
 def test_run_programbench_eval_cleans_matching_containers_after_success_without_eval_json(
@@ -290,7 +311,7 @@ def test_run_programbench_eval_cleans_matching_containers_after_success_without_
     cleaned = []
     image_cleaned = []
 
-    def fake_run_command(_command):
+    def fake_run_command(_command, **_kwargs):
         return None
 
     def fake_cleanup(instance_id):
@@ -327,7 +348,7 @@ def test_run_programbench_eval_cleans_matching_containers_after_failed_eval_with
     cleaned = []
     image_cleaned = []
 
-    def fake_run_command(_command):
+    def fake_run_command(_command, **_kwargs):
         raise RuntimeError("official eval hung")
 
     def fake_cleanup(instance_id):
@@ -450,7 +471,7 @@ def test_run_programbench_eval_raises_without_eval_json(tmp_path, monkeypatch):
     parsed = args()
     paths = build_paths(parsed.instance_id, parsed.runs, tmp_path / "eval", "submission_owner_repo")
 
-    def fake_run_command(_command):
+    def fake_run_command(_command, **_kwargs):
         raise RuntimeError("failed before eval output")
 
     monkeypatch.setattr("scripts.run_official_closed_loop.run_command", fake_run_command)

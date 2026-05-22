@@ -607,22 +607,41 @@ def build_subprocess_env() -> dict[str, str]:
     return env
 
 
-def run_command(command: list[str], *, timeout_seconds: float | None = None) -> None:
+def run_command(
+    command: list[str],
+    *,
+    timeout_seconds: float | None = None,
+    stdout_path: Path | None = None,
+    stderr_path: Path | None = None,
+) -> None:
     print("+ " + " ".join(command), flush=True)
+    run_kwargs: dict[str, Any] = {
+        "text": True,
+        "check": False,
+        "env": build_subprocess_env(),
+    }
+    if timeout_seconds is not None and timeout_seconds > 0:
+        run_kwargs["timeout"] = timeout_seconds
+    stdout_file = None
+    stderr_file = None
     try:
-        if timeout_seconds is not None and timeout_seconds > 0:
-            result = subprocess.run(
-                command,
-                text=True,
-                check=False,
-                env=build_subprocess_env(),
-                timeout=timeout_seconds,
-            )
-        else:
-            result = subprocess.run(command, text=True, check=False, env=build_subprocess_env())
+        if stdout_path is not None:
+            stdout_path.parent.mkdir(parents=True, exist_ok=True)
+            stdout_file = stdout_path.open("w", encoding="utf-8")
+            run_kwargs["stdout"] = stdout_file
+        if stderr_path is not None:
+            stderr_path.parent.mkdir(parents=True, exist_ok=True)
+            stderr_file = stderr_path.open("w", encoding="utf-8")
+            run_kwargs["stderr"] = stderr_file
+        result = subprocess.run(command, **run_kwargs)
     except subprocess.TimeoutExpired as exc:
         timeout_text = f"{timeout_seconds:g}" if timeout_seconds is not None else "unknown"
         raise RuntimeError(f"Command timed out after {timeout_text}s: {' '.join(command)}") from exc
+    finally:
+        if stdout_file is not None:
+            stdout_file.close()
+        if stderr_file is not None:
+            stderr_file.close()
     if result.returncode != 0:
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(command)}")
 
@@ -838,12 +857,19 @@ def record_official_eval_failure(
 
 def run_programbench_eval(args: argparse.Namespace, paths: ClosedLoopPaths) -> None:
     command = build_programbench_eval_command(args, paths)
+    stdout_log = paths.submission_root / "official_eval_stdout.log"
+    stderr_log = paths.submission_root / "official_eval_stderr.log"
     try:
         timeout_seconds = getattr(args, "official_eval_timeout_seconds", 0.0)
         if timeout_seconds and timeout_seconds > 0:
-            run_command(command, timeout_seconds=timeout_seconds)
+            run_command(
+                command,
+                timeout_seconds=timeout_seconds,
+                stdout_path=stdout_log,
+                stderr_path=stderr_log,
+            )
         else:
-            run_command(command)
+            run_command(command, stdout_path=stdout_log, stderr_path=stderr_log)
     except RuntimeError as exc:
         if paths.eval_json.exists():
             print(
