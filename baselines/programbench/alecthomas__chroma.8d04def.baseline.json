@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-15T10:37:25.448761+00:00",
+  "recorded_at": "2026-05-23T03:25:28.604875+00:00",
   "instance_id": "alecthomas__chroma.8d04def",
-  "model": "glm-5.1",
-  "config_path": "config\\settings.yaml",
-  "notes": "Historical official aggregate baseline discovered from existing eval artifact: 13/515 counted tests, score 3; local holdout was only 5 cases, so retained as low-sample aggregate evidence, not a current gate-passing breakthrough.",
+  "model": "codex-file-bridge-chroma-restore_patch3_generalization_probe",
+  "config_path": "C:\\Users\\Administrator\\Desktop\\ReBuilder\\output\\file_bridge_manual\\smoke_file_bridge_chroma_restore_patch3_generalization_probe.yaml",
+  "notes": "Official closed-loop aggregate baseline: 65/515 counted tests, score 13; raw eval 73/531; aggregate-only.",
   "local": {
-    "status": "failed",
-    "resolved_rate": 0.9,
-    "holdout_resolved_rate": 0.8,
-    "probes_conducted": 20,
-    "iterations_used": 1
+    "status": "success",
+    "resolved_rate": 1.0,
+    "holdout_resolved_rate": 1.0,
+    "probes_conducted": 90,
+    "iterations_used": 0
   },
   "official": {
-    "passed_tests": 13,
+    "passed_tests": 65,
     "total_tests": 515,
-    "pass_rate": 0.02524271844660194,
-    "score": 3,
+    "pass_rate": 0.1262135922330097,
+    "score": 13,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_mini_lab_chroma_20260511\\submission\\alecthomas__chroma.8d04def\\submission.tar.gz",
-    "sha256": "1a89f8efcbf62a109e6dbb2840c7a1911afb027403c02e8b1c64a2e4c507db3d"
+    "path": "runs\\file_bridge_no_external_chroma_20260521_restore_patch3_generalization_probe_submission\\file_bridge_no_external_chroma_20260521_restore_patch3_generalization_probe_eval\\alecthomas__chroma.8d04def\\submission.tar.gz",
+    "sha256": "57fd009918c4019eb7915b04411b1024270b8e93e9e0b733233a2ec3d8f4c24d"
   }
 }

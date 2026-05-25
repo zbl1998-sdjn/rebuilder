@@ -98,13 +98,15 @@ Verified locally on Windows with Docker Desktop:
   attaches stale same-task failure reports to newer candidates, and invalid
   embedded `0/0` summaries are routed as official-eval operational failures.
   The score `56` record remains the baseline and is not a solved task.
-- Historical low-sample official aggregate baseline discovered from existing
-  eval artifacts and now frozen in `baselines/programbench`:
-  `alecthomas__chroma.8d04def` score `3` (`13/515` counted tests). This is
-  retained as aggregate evidence, not as a current gate-passing breakthrough.
-  A later no-external `file_bridge` restore candidate reached local
-  exploration/holdout `100%`, but official eval scored `0` (`0/515`
-  counted), so it did not update the baseline.
+- `alecthomas__chroma.8d04def` official aggregate baseline improved from
+  score `3` (`13/515` counted) to score `13` (`65/515` counted tests; raw
+  eval `73/531`) via a no-external-LLM `file_bridge` syntax-highlighter
+  restore/generalization patch (`restore_patch3_generalization_probe`).
+  Local exploration and internal holdout were `100%` under a 40-case
+  min-holdout gate. An earlier `restore_patch2` candidate had `100%` local
+  but official `0` (`0/515`), so the generalization-probe patch3 is the
+  first chroma official upgrade. This is an aggregate official baseline
+  upgrade, not a solved task (`fully_resolved=false`).
 - Previous zoxide official evaluator baseline: raw `175/974`, score `18`
 - Earlier official evaluator candidates remained below the previous baseline:
   `95/577` from the Windows-local validation candidate, `76/577` from the
@@ -904,6 +906,6 @@ MIT License.
 - tomnomnom__gron: 使用无外部 LLM 的 file_bridge restoration patch，将官方 ProgramBench info 分数从 26 提升到 62（140/224 counted；raw eval 148/233），本地 exploration 45/45、holdout 13/14、runtime smoke 覆盖 args/stdin/input_files/default；仍不是 fully resolved。
 - mgdm__htmlq: 使用无外部 LLM 的 file_bridge restoration patch，将官方 ProgramBench info 分数从 8 提升到 91（1330/1455 counted；raw eval 1881/2058），本地 exploration 48/49、holdout 14/15、runtime smoke 覆盖 args/stdin/input_files/default；仍不是 fully resolved。
 - ajeetdsouza__zoxide: 官方分数 37（前为 18），aggregate-only。
-- alecthomas__chroma: no-external file_bridge restore_patch2 本地 exploration/holdout 均为 100%，但官方 eval 为 score 0（0/515 counted；raw 0/531），低于历史 score-3 baseline；这是强本地信号未泛化到官方 aggregate 的负证据，不是突破。
+- alecthomas__chroma: 使用无外部 LLM 的 file_bridge syntax-highlighter restore/generalization patch（restore_patch3_generalization_probe），将官方 ProgramBench info 分数从 3 提升到 13（65/515 counted；raw eval 73/531），本地 exploration/holdout 在 40-case min-holdout gate 下均为 100%；早期 restore_patch2 候选本地 100% 但官方 0（0/515），patch3 generalization 探针是首个 chroma 官方升级，仍不是 fully resolved。
 
 当前已沉淀多条官方 aggregate baseline，均只记录 aggregate summary 与 submission hash。后续继续推进更多任务族的稳定泛化与 hidden 全解。
