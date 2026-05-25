@@ -1038,6 +1038,1139 @@ HANDLERS["frequency"] = cmd_frequency
 '''
 
 
+PATCH8_SOURCE = r'''
+
+# --- ReBuilder no-external xsv restore_patch8 broad flag/command repairs ---
+# Fixes: long-form flag aliases across many commands, flatten multi-row output,
+# --list format, stats mode/median/cardinality/nulls/select/no-headers flags,
+# split --size/outdir semantics, sort -u/-uniq rejection, headers multi-file,
+# search -v/--invert-match, count/reverse/sort/search/slice/table option flags,
+# fmt --crlf/--quote-always/--ascii/--out-delimiter, input --no-quoting/--quote,
+# error message usage strings, stats stddev float formatting (.16g precision),
+# flatten no-headers label column width (min 4), stats --nulls treats empty as 0,
+# stats single-value stddev = 0, headers --intersect shows union.
+
+import collections as _p8_collections
+
+
+def _p8_usage(cmd, positional=""):
+    """Return the Usage: ... snippet matching the reference error format."""
+    _usage_map = {
+        "cat": "    xsv cat rows    [options] [<input>...]\n    xsv cat columns [options] [<input>...]\n    xsv cat --help",
+        "count": "    xsv count [options] [<input>]\n    xsv count --help",
+        "fixlengths": "    xsv fixlengths [options] [<input>]\n    xsv fixlengths --help",
+        "flatten": "    xsv flatten [options] [<input>]\n    xsv flatten --help",
+        "fmt": "    xsv fmt [options] [<input>]\n    xsv fmt --help",
+        "frequency": "    xsv frequency [options] [<input>]\n    xsv frequency --help",
+        "headers": "    xsv headers [options] [<input>...]\n    xsv headers --help",
+        "index": "    xsv index [options] <input>\n    xsv index --help",
+        "input": "    xsv input [options] [<input>]\n    xsv input --help",
+        "join": "    xsv join [options] <columns1> <input1> <columns2> <input2>\n    xsv join --help",
+        "partition": "    xsv partition [options] <column> <outdir> [<input>]\n    xsv partition --help",
+        "reverse": "    xsv reverse [options] [<input>]\n    xsv reverse --help",
+        "sample": "    xsv sample [options] <sample-size> [<input>]\n    xsv sample --help",
+        "search": "    xsv search [options] <regex> [<input>]\n    xsv search --help",
+        "select": "    xsv select [options] [--] <selection> [<input>]\n    xsv select --help",
+        "slice": "    xsv slice [options] [<input>]\n    xsv slice --help",
+        "sort": "    xsv sort [options] [<input>]\n    xsv sort --help",
+        "split": "    xsv split [options] <outdir> [<input>]\n    xsv split --help",
+        "stats": "    xsv stats [options] [<input>]\n    xsv stats --help",
+        "table": "    xsv table [options] [<input>]\n    xsv table --help",
+    }
+    body = _usage_map.get(cmd, f"    xsv {cmd} [options]\n    xsv {cmd} --help")
+    return f"Invalid arguments.\n\nUsage:\n{body}\n"
+
+
+# ---- helpers ----
+
+def _p8_format_num(val, col_type):
+    """Format numeric value: integers as int string, floats as .17g but trim .0."""
+    if col_type == "Integer":
+        if isinstance(val, float):
+            if val == int(val):
+                return str(int(val))
+            return f"{val:.17g}"
+        return str(int(val))
+    elif col_type == "Float":
+        return f"{val:.17g}"
+    # For stddev of integer columns: if float result is whole, show as int
+    if isinstance(val, float) and val == int(val):
+        return str(int(val))
+    return f"{val:.17g}"
+
+
+def _p8_stats_num(val, col_type, is_stddev=False):
+    """Format stats output values using Python repr() for floats.
+    Whole-number floats are shown as integers.
+    """
+    if isinstance(val, float) and val == int(val):
+        return str(int(val))
+    if isinstance(val, float):
+        return repr(val)
+    return str(val)
+
+
+def _p8_mode(values):
+    """Return most common value, or N/A if all values are unique."""
+    if not values:
+        return ""
+    freq = _p8_collections.Counter(values)
+    max_count = max(freq.values())
+    if max_count == 1:
+        return "N/A"
+    # Return the value with highest count; ties broken by first-seen order
+    for val in values:
+        if freq[val] == max_count:
+            return val
+    return "N/A"
+
+
+def _p8_median(nums):
+    """Return median of a list of numbers."""
+    if not nums:
+        return ""
+    ordered = sorted(nums)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _p8_welford_var(nums):
+    """Compute population variance using Welford's online algorithm (matches Rust xsv)."""
+    if len(nums) < 2:
+        return 0.0
+    n = 0
+    mean = 0.0
+    m2 = 0.0
+    for x in nums:
+        n += 1
+        delta = x - mean
+        mean += delta / n
+        m2 += delta * (x - mean)
+    return m2 / n  # population variance
+
+
+# ---- --list format fix ----
+
+def _p8_list_text():
+    lines = ["Installed commands:"]
+    for name, desc in CMD_DESC:
+        lines.append("    " + name.ljust(12) + desc)
+    lines.append("")
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ---- no_args / help text fix (trailing newline) ----
+
+def _p8_no_args_text():
+    lines = [
+        "xsv is a suite of CSV command line utilities.",
+        "",
+        "Please choose one of the following commands:",
+    ]
+    for name, desc in CMD_DESC:
+        lines.append("    " + name.ljust(12) + desc)
+    lines.append("")
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ---- fmt ----
+
+def cmd_fmt(args):
+    delimiter = None
+    out_delimiter = None
+    crlf = False
+    ascii_mode = False
+    quote_always = False
+    quote_char = '"'
+    escape_char = None
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-t", "--out-delimiter") and i + 1 < len(args):
+            out_delimiter = args[i + 1]; i += 2
+        elif token.startswith("--out-delimiter="):
+            out_delimiter = token.split("=", 1)[1]; i += 1
+        elif token == "--crlf":
+            crlf = True; i += 1
+        elif token == "--ascii":
+            ascii_mode = True; i += 1
+        elif token == "--quote-always":
+            quote_always = True; i += 1
+        elif token == "--quote" and i + 1 < len(args):
+            quote_char = args[i + 1]; i += 2
+        elif token.startswith("--quote="):
+            quote_char = token.split("=", 1)[1]; i += 1
+        elif token == "--escape" and i + 1 < len(args):
+            escape_char = args[i + 1]; i += 2
+        elif token.startswith("--escape="):
+            escape_char = token.split("=", 1)[1]; i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2  # ignore output option
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    filepath = files[0] if files else None
+    in_delim = delimiter if delimiter else ","
+    rows = read_csv_data(filepath, delimiter=in_delim)
+    if ascii_mode:
+        # ASCII record separator = \x1e (0x1e), field separator = \x1f (0x1f)
+        out = io.StringIO()
+        for row in rows:
+            out.write("\x1f".join(row) + "\x1e")
+        return out.getvalue(), "", 0
+    if crlf:
+        line_ending = "\r\n"
+    else:
+        line_ending = "\n"
+    if out_delimiter is None:
+        out_delim = ","
+    else:
+        out_delim = out_delimiter
+    out = io.StringIO()
+    if quote_always:
+        quoting_mode = csv.QUOTE_ALL
+    else:
+        quoting_mode = csv.QUOTE_MINIMAL
+    writer = csv.writer(out, delimiter=out_delim,
+                        quotechar=quote_char,
+                        quoting=quoting_mode,
+                        lineterminator=line_ending)
+    for row in rows:
+        writer.writerow(row)
+    return out.getvalue(), "", 0
+
+
+HANDLERS["fmt"] = cmd_fmt
+
+
+# ---- flatten (all rows, separator, condense, no-headers) ----
+
+def cmd_flatten(args):
+    separator = "#"
+    condense = None
+    no_headers = False
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-s", "--separator") and i + 1 < len(args):
+            separator = args[i + 1]; i += 2
+        elif token.startswith("--separator="):
+            separator = token.split("=", 1)[1]; i += 1
+        elif token in ("-c", "--condense") and i + 1 < len(args):
+            condense = int(args[i + 1]); i += 2
+        elif token.startswith("--condense="):
+            condense = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-n", "--no-headers"):
+            no_headers = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    filepath = files[0] if files else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return "", "", 0
+
+    def condense_val(v):
+        if condense is not None and len(v) > condense:
+            return v[:condense] + "..."
+        return v
+
+    if no_headers:
+        max_width = max((len(row) for row in rows), default=0)
+        header = [str(j) for j in range(max_width)]
+        data = rows
+    else:
+        if len(rows) < 1:
+            return "", "", 0
+        header = rows[0]
+        data = rows[1:]
+
+    if not data:
+        return "", "", 0
+
+    max_hlen = max((len(h) for h in header), default=0)
+    # No-headers numeric labels need minimum padding of 4 to match reference
+    if no_headers:
+        label_width = max(max_hlen + 2, 4)
+    else:
+        label_width = max_hlen + 2
+    output_parts = []
+    for rec_idx, record in enumerate(data):
+        lines = []
+        for j, h in enumerate(header):
+            val = record[j] if j < len(record) else ""
+            val = condense_val(val)
+            lines.append(h.ljust(label_width) + val)
+        output_parts.append("\n".join(lines))
+
+    if len(output_parts) == 1:
+        return output_parts[0] + "\n", "", 0
+
+    sep_line = separator
+    joined = ("\n" + sep_line + "\n").join(output_parts)
+    return joined + "\n", "", 0
+
+
+HANDLERS["flatten"] = cmd_flatten
+
+
+# ---- count (--no-headers / -n) ----
+
+def cmd_count(args):
+    no_headers = False
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-n", "--no-headers"):
+            no_headers = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    filepath = files[0] if files else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if no_headers:
+        return str(len(rows)) + "\n", "", 0
+    return str(max(0, len(rows) - 1)) + "\n", "", 0
+
+
+HANDLERS["count"] = cmd_count
+
+
+# ---- headers (--just-names long form, multi-file just-names, --intersect) ----
+
+def cmd_headers(args):
+    just_names = False
+    intersect = False
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-j", "--just-names"):
+            just_names = True; i += 1
+        elif token == "--intersect":
+            intersect = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    if not files:
+        files = [None]
+    # With multiple files (or --intersect), always use just-names style
+    force_just_names = just_names or len(files) > 1 or intersect
+    all_header_sets = []
+    all_headers_ordered = []
+    for f in files:
+        rows = read_csv_data(f, delimiter=delimiter)
+        if rows:
+            all_header_sets.append(set(rows[0]))
+            all_headers_ordered.append(rows[0])
+        else:
+            all_header_sets.append(set())
+            all_headers_ordered.append([])
+    if intersect and len(all_headers_ordered) > 0:
+        # --intersect shows UNION of all headers (all unique headers in order of appearance)
+        seen = set()
+        lines = []
+        for headers in all_headers_ordered:
+            for h in headers:
+                if h not in seen:
+                    seen.add(h)
+                    lines.append(h)
+        return "\n".join(lines) + "\n", "", 0
+    lines = []
+    for idx_f, headers in enumerate(all_headers_ordered):
+        for idx, h in enumerate(headers):
+            if force_just_names:
+                lines.append(h)
+            else:
+                lines.append(f"{idx + 1:<4}{h}")
+    return "\n".join(lines) + "\n", "", 0
+
+
+HANDLERS["headers"] = cmd_headers
+
+
+# ---- input (--no-quoting, --quote, --escape) ----
+
+def cmd_input(args):
+    no_quoting = False
+    quote_char = '"'
+    escape_char = None
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token == "--no-quoting":
+            no_quoting = True; i += 1
+        elif token == "--quote" and i + 1 < len(args):
+            quote_char = args[i + 1]; i += 2
+        elif token.startswith("--quote="):
+            quote_char = token.split("=", 1)[1]; i += 1
+        elif token == "--escape" and i + 1 < len(args):
+            escape_char = args[i + 1]; i += 2
+        elif token.startswith("--escape="):
+            escape_char = token.split("=", 1)[1]; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    filepath = files[0] if files else None
+    if filepath is None or filepath == "-":
+        text = sys.stdin.read()
+    else:
+        with open(filepath, "r", newline="") as fh:
+            text = fh.read()
+    if no_quoting:
+        # Parse without any quoting -- each field is exactly the delimited text
+        rows = []
+        for line in text.splitlines():
+            rows.append(line.split(delimiter))
+        return write_csv(rows), "", 0
+    # Custom quote char
+    kwargs = {"delimiter": delimiter, "quotechar": quote_char}
+    if escape_char is not None:
+        kwargs["escapechar"] = escape_char
+        kwargs["doublequote"] = False
+    reader = csv.reader(io.StringIO(text), **kwargs)
+    rows = list(reader)
+    return write_csv(rows), "", 0
+
+
+HANDLERS["input"] = cmd_input
+
+
+# ---- reverse (--no-headers / -n) ----
+
+def cmd_reverse(args):
+    no_headers = False
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-n", "--no-headers"):
+            no_headers = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    filepath = files[0] if files else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return write_csv(rows), "", 0
+    if no_headers:
+        return write_csv(list(reversed(rows))), "", 0
+    if len(rows) < 2:
+        return write_csv(rows), "", 0
+    header = rows[0]
+    data = list(reversed(rows[1:]))
+    return write_csv([header] + data), "", 0
+
+
+HANDLERS["reverse"] = cmd_reverse
+
+
+# ---- search (--invert-match / -v, --ignore-case long, --no-headers, --select long) ----
+
+def cmd_search(args):
+    ignore_case = False
+    invert_match = False
+    select_col = None
+    no_headers = False
+    delimiter = ","
+    positional = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-i", "--ignore-case"):
+            ignore_case = True; i += 1
+        elif token in ("-v", "--invert-match"):
+            invert_match = True; i += 1
+        elif token in ("-s", "--select") and i + 1 < len(args):
+            select_col = args[i + 1]; i += 2
+        elif token.startswith("--select="):
+            select_col = token.split("=", 1)[1]; i += 1
+        elif token in ("-n", "--no-headers"):
+            no_headers = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2
+        elif not token.startswith("-"):
+            positional.append(token); i += 1
+        else:
+            i += 1
+    if not positional:
+        return "", _p8_usage("search"), 1
+    pattern = positional[0]
+    filepath = positional[1] if len(positional) > 1 else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return "", "", 0
+    flags_re = re.IGNORECASE if ignore_case else 0
+    regex = re.compile(pattern, flags_re)
+    if no_headers:
+        header = None
+        data = rows
+    else:
+        header = rows[0]
+        data = rows[1:]
+    if select_col and header is not None:
+        cols = resolve_col(header, select_col)
+    else:
+        cols = None
+    out = []
+    if header is not None:
+        out.append(header)
+    for row in data:
+        match = False
+        if cols is not None:
+            for ci in cols:
+                if ci < len(row) and regex.search(row[ci]):
+                    match = True; break
+        else:
+            for field in row:
+                if regex.search(field):
+                    match = True; break
+        if (match and not invert_match) or (not match and invert_match):
+            out.append(row)
+    return write_csv(out), "", 0
+
+
+HANDLERS["search"] = cmd_search
+
+
+# ---- select (usage string) ----
+_p8_orig_select = HANDLERS["select"]
+
+
+def cmd_select(args):
+    if not args:
+        return "", _p8_usage("select"), 1
+    return _p8_orig_select(args)
+
+
+HANDLERS["select"] = cmd_select
+
+
+# ---- slice (long-form flags) ----
+
+def cmd_slice(args):
+    start = None
+    end = None
+    index = None
+    length = None
+    no_headers = False
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-s", "--start") and i + 1 < len(args):
+            start = int(args[i + 1]); i += 2
+        elif token.startswith("--start="):
+            start = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-e", "--end") and i + 1 < len(args):
+            end = int(args[i + 1]); i += 2
+        elif token.startswith("--end="):
+            end = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-l", "--len") and i + 1 < len(args):
+            length = int(args[i + 1]); i += 2
+        elif token.startswith("--len="):
+            length = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-i", "--index") and i + 1 < len(args):
+            index = int(args[i + 1]); i += 2
+        elif token.startswith("--index="):
+            index = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-n", "--no-headers"):
+            no_headers = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    filepath = files[0] if files else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return "", "", 0
+    if no_headers:
+        header = None
+        data = rows
+    else:
+        header = rows[0]
+        data = rows[1:]
+    if index is not None:
+        sliced = [data[index]] if index < len(data) else []
+    else:
+        s = start if start is not None else 0
+        e = end if end is not None else len(data)
+        if length is not None:
+            e = s + length
+        sliced = data[s:e]
+    if header is not None:
+        return write_csv([header] + sliced), "", 0
+    return write_csv(sliced), "", 0
+
+
+HANDLERS["slice"] = cmd_slice
+
+
+# ---- sort (long-form flags, -u/-uniq rejection, -n/--no-headers) ----
+
+def cmd_sort(args):
+    select = None
+    reverse_flag = False
+    numeric = False
+    no_headers = False
+    delimiter = ","
+    positional = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-s", "--select") and i + 1 < len(args):
+            select = args[i + 1]; i += 2
+        elif token.startswith("--select="):
+            select = token.split("=", 1)[1]; i += 1
+        elif token in ("-R", "--reverse"):
+            reverse_flag = True; i += 1
+        elif token in ("-N", "--numeric"):
+            numeric = True; i += 1
+        elif token in ("-n", "--no-headers"):
+            no_headers = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2
+        elif token in ("-u", "--uniq", "--unique"):
+            # Reference rejects these flags (without --help line)
+            return "", f"Unknown flag: '{token}'\n\nUsage:\n    xsv sort [options] [<input>]\n", 1
+        elif not token.startswith("-"):
+            positional.append(token); i += 1
+        else:
+            # Unknown flag -- pass through with error (without --help line)
+            return "", f"Unknown flag: '{token}'\n\nUsage:\n    xsv sort [options] [<input>]\n", 1
+    filepath = positional[0] if positional else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return write_csv(rows), "", 0
+    if no_headers:
+        header = None
+        data = rows
+    else:
+        if len(rows) < 2:
+            return write_csv(rows), "", 0
+        header = rows[0]
+        data = rows[1:]
+    if select and header is not None:
+        ci = resolve_col(header, select)[0]
+    elif select:
+        ci = int(select) - 1
+    else:
+        ci = 0
+
+    def sort_key(row):
+        val = row[ci] if ci < len(row) else ""
+        if numeric:
+            try:
+                return (0, float(val))
+            except ValueError:
+                return (1, val)
+        return (0, val)
+
+    data.sort(key=sort_key, reverse=reverse_flag)
+    if header is not None:
+        return write_csv([header] + data), "", 0
+    return write_csv(data), "", 0
+
+
+HANDLERS["sort"] = cmd_sort
+
+
+# ---- split (outdir as first positional, --size flag) ----
+
+def cmd_split(args):
+    size = 500  # default chunk size
+    no_headers = False
+    delimiter = ","
+    filename_template = "{}.csv"
+    positional = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-s", "--size") and i + 1 < len(args):
+            size = int(args[i + 1]); i += 2
+        elif token.startswith("--size="):
+            size = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-n", "--no-headers"):
+            no_headers = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token == "--filename" and i + 1 < len(args):
+            filename_template = args[i + 1]; i += 2
+        elif token.startswith("--filename="):
+            filename_template = token.split("=", 1)[1]; i += 1
+        elif token in ("-j", "--jobs") and i + 1 < len(args):
+            i += 2
+        elif token.startswith("--jobs="):
+            i += 1
+        elif not token.startswith("-"):
+            positional.append(token); i += 1
+        else:
+            i += 1
+    if not positional:
+        return "", _p8_usage("split"), 1
+    outdir = positional[0]
+    filepath = positional[1] if len(positional) > 1 else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return "", "", 0
+    os.makedirs(outdir, exist_ok=True)
+    if no_headers:
+        header = None
+        data = rows
+    else:
+        header = rows[0]
+        data = rows[1:]
+    if not data:
+        return "", "", 0
+    start = 0
+    while start < len(data):
+        chunk = data[start:start + size]
+        fname = filename_template.replace("{}", str(start))
+        out_path = os.path.join(outdir, fname)
+        with open(out_path, "w", newline="") as fh:
+            writer = csv.writer(fh, lineterminator="\n")
+            if header is not None:
+                writer.writerow(header)
+            for row in chunk:
+                writer.writerow(row)
+        start += size
+    return "", "", 0
+
+
+HANDLERS["split"] = cmd_split
+
+
+# ---- table (--pad/-p, --width/-w, --condense/-c) ----
+
+def cmd_table(args):
+    pad = 2
+    min_width = 2
+    condense = None
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in ("-p", "--pad") and i + 1 < len(args):
+            pad = int(args[i + 1]); i += 2
+        elif token.startswith("--pad="):
+            pad = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-w", "--width") and i + 1 < len(args):
+            min_width = int(args[i + 1]); i += 2
+        elif token.startswith("--width="):
+            min_width = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-c", "--condense") and i + 1 < len(args):
+            condense = int(args[i + 1]); i += 2
+        elif token.startswith("--condense="):
+            condense = int(token.split("=", 1)[1]); i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    filepath = files[0] if files else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return "", "", 0
+
+    def truncate(v):
+        if condense is not None and len(v) > condense:
+            return v[:condense] + "..."
+        return v
+
+    # Apply condense
+    display_rows = [[truncate(f) for f in row] for row in rows]
+    ncols = max(len(r) for r in display_rows)
+    widths = [min_width] * ncols
+    for row in display_rows:
+        for j, field in enumerate(row):
+            widths[j] = max(widths[j], len(field))
+    sep = " " * pad
+    lines = []
+    for row in display_rows:
+        parts = []
+        for j in range(ncols):
+            val = row[j] if j < len(row) else ""
+            if j < ncols - 1:
+                parts.append(val.ljust(widths[j]))
+            else:
+                parts.append(val)
+        lines.append(sep.join(parts).rstrip())
+    return "\n".join(lines) + "\n", "", 0
+
+
+HANDLERS["table"] = cmd_table
+
+
+# ---- stats (--mode, --median, --cardinality, --nulls, --select, --no-headers) ----
+
+_p8_prev_stats = HANDLERS["stats"]
+
+
+def cmd_stats(args):
+    everything = False
+    mode_flag = False
+    median_flag = False
+    cardinality_flag = False
+    nulls_flag = False
+    select_spec = None
+    no_headers = False
+    delimiter = ","
+    files = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token == "--everything":
+            everything = True; i += 1
+        elif token == "--mode":
+            mode_flag = True; i += 1
+        elif token == "--median":
+            median_flag = True; i += 1
+        elif token == "--cardinality":
+            cardinality_flag = True; i += 1
+        elif token == "--nulls":
+            nulls_flag = True; i += 1
+        elif token in ("-s", "--select") and i + 1 < len(args):
+            select_spec = args[i + 1]; i += 2
+        elif token.startswith("--select="):
+            select_spec = token.split("=", 1)[1]; i += 1
+        elif token in ("-n", "--no-headers"):
+            no_headers = True; i += 1
+        elif token in ("-d", "--delimiter") and i + 1 < len(args):
+            delimiter = args[i + 1]; i += 2
+        elif token.startswith("--delimiter="):
+            delimiter = token.split("=", 1)[1]; i += 1
+        elif token in ("-j", "--jobs") and i + 1 < len(args):
+            i += 2
+        elif token.startswith("--jobs="):
+            i += 1
+        elif token in ("-o", "--output") and i + 1 < len(args):
+            i += 2
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+
+    if everything:
+        mode_flag = True
+        median_flag = True
+        cardinality_flag = True
+
+    filepath = files[0] if files else None
+    rows = read_csv_data(filepath, delimiter=delimiter)
+    if not rows:
+        return "", "", 0
+
+    if no_headers:
+        max_width = max((len(row) for row in rows), default=0)
+        header = [str(j) for j in range(max_width)]
+        data = rows
+    else:
+        header = rows[0]
+        data = rows[1:]
+
+    # Apply column selection
+    if select_spec is not None:
+        col_indices = resolve_col(header, select_spec)
+    else:
+        col_indices = list(range(len(header)))
+
+    # Build output header
+    out_header = ["field", "type", "sum", "min", "max", "min_length", "max_length", "mean", "stddev"]
+    if median_flag:
+        out_header.append("median")
+    if mode_flag:
+        out_header.append("mode")
+    if cardinality_flag:
+        out_header.append("cardinality")
+
+    out_rows = [out_header]
+    for ci in col_indices:
+        col_name = header[ci] if ci < len(header) else str(ci)
+        all_values = [row[ci] if ci < len(row) else "" for row in data]
+        if nulls_flag:
+            # nulls means empty counts in population for mean/stddev
+            non_empty = [v for v in all_values if v != ""]
+        else:
+            non_empty = [v for v in all_values if v != ""]
+
+        # Determine column type
+        is_int = True
+        is_float = True
+        for v in non_empty:
+            try:
+                int(v)
+            except ValueError:
+                is_int = False
+            try:
+                float(v)
+            except ValueError:
+                is_float = False
+
+        if non_empty and is_int:
+            col_type = "Integer"
+            nums = [int(v) for v in non_empty]
+        elif non_empty and is_float:
+            col_type = "Float"
+            nums = [float(v) for v in non_empty]
+        else:
+            col_type = "Unicode"
+            nums = []
+
+        s = mn = mx = mean_s = sd_s = ""
+        # min/max_length in UTF-8 bytes (matching Rust xsv's str::len())
+        def _utf8_len(s):
+            try:
+                return len(s.encode("utf-8"))
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                return len(s.encode("utf-8", "replace"))
+        min_len = min((_utf8_len(v) for v in all_values), default=0)
+        max_len = max((_utf8_len(v) for v in all_values), default=0)
+
+        if nums:
+            # For --nulls, treat empty strings as 0 in the numeric computations
+            if nulls_flag:
+                if col_type == "Integer":
+                    nums_for_stats = [int(v) if v != "" else 0 for v in all_values]
+                else:
+                    nums_for_stats = [float(v) if v != "" else 0.0 for v in all_values]
+                total = sum(nums_for_stats)
+                denom = len(nums_for_stats)
+            else:
+                nums_for_stats = nums
+                total = sum(nums)
+                denom = len(nums)
+            if col_type == "Integer":
+                s = str(sum(nums))  # sum of non-empty only
+                mn = str(min(nums))
+                mx = str(max(nums))
+            else:
+                s = repr(sum(nums))
+                mn = repr(min(nums))
+                mx = repr(max(nums))
+            mean_val = total / denom
+            mean_s = _p8_stats_num(mean_val, col_type)
+            if denom >= 1:
+                # Use Welford's algorithm to match Rust xsv's float accumulation
+                var = _p8_welford_var(nums_for_stats)
+                sd_val = math.sqrt(var)
+                sd_s = _p8_stats_num(sd_val, col_type)
+        elif non_empty:
+            mn = min(non_empty)
+            mx = max(non_empty)
+
+        row_out = [col_name, col_type, s, mn, mx, str(min_len), str(max_len), mean_s, sd_s]
+
+        if median_flag:
+            if nums:
+                med = _p8_median(nums)
+                row_out.append(_p8_stats_num(med, col_type))
+            else:
+                row_out.append("")
+
+        if mode_flag:
+            if non_empty:
+                row_out.append(_p8_mode(non_empty))
+            else:
+                row_out.append("")
+
+        if cardinality_flag:
+            row_out.append(str(len(set(non_empty))))
+
+        out_rows.append(row_out)
+
+    return write_csv(out_rows), "", 0
+
+
+HANDLERS["stats"] = cmd_stats
+
+
+# ---- main (--list format, no_args double trailing newline) ----
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        return ("", _p8_no_args_text(), 0)
+    if argv[0] in ("--help", "-h"):
+        return (help_text(), "", 0)
+    if argv[0] == "--version":
+        return (VERSION + "\n", "", 0)
+    if argv[0] == "--list":
+        return (_p8_list_text(), "", 0)
+    cmd = argv[0]
+    if cmd not in COMMANDS:
+        if cmd.startswith("-") and cmd != "-":
+            return (
+                "",
+                f"Unknown flag: '{cmd}'\n\nUsage:\n    xsv <command> [<args>...]\n    xsv [options]\n",
+                1,
+            )
+        import json as _json
+        allowed = _json.dumps(COMMANDS)
+        return ("", f"Could not match '{cmd}' with any of the allowed variants: {allowed}\n", 1)
+    sub_args = argv[1:]
+    if sub_args and sub_args[0] in ("--help", "-h"):
+        return cmd_help_subcommand([cmd])
+    handler = HANDLERS[cmd]
+    return handler(sub_args)
+
+
+# ---- cat (rows with mismatch error, columns with --pad) ----
+
+def cmd_cat(args):
+    _cat_usage = (
+        "Invalid arguments.\n\nUsage:\n"
+        "    xsv cat rows    [options] [<input>...]\n"
+        "    xsv cat columns [options] [<input>...]\n"
+        "    xsv cat --help\n"
+    )
+    if not args or args[0] not in ("rows", "columns"):
+        return "", _cat_usage, 1
+    mode = args[0]
+    rest = args[1:]
+    # Parse flags for columns mode
+    pad = False
+    files = []
+    i = 0
+    while i < len(rest):
+        token = rest[i]
+        if token == "--pad":
+            pad = True; i += 1
+        elif not token.startswith("-"):
+            files.append(token); i += 1
+        else:
+            i += 1
+    if not files:
+        files = [None]
+    all_rows = [read_csv_data(f) for f in files]
+    if mode == "rows":
+        # Concatenate rows, checking for column count mismatches
+        out_rows = []
+        prev_ncol = None
+        for fi, rows in enumerate(all_rows):
+            if not rows:
+                continue
+            if fi == 0:
+                out_rows.extend(rows)
+                if len(rows) >= 1:
+                    prev_ncol = len(rows[0])
+            else:
+                # Skip header of subsequent files, then stream data rows
+                data_rows = rows[1:] if rows else []
+                for row in data_rows:
+                    cur_ncol = len(row)
+                    if prev_ncol is not None and cur_ncol != prev_ncol:
+                        # Emit the partial row (as a raw CSV line) then error
+                        partial = ",".join(row)
+                        partial_out = write_csv(out_rows) + partial
+                        err = (
+                            f"CSV error: found record with {cur_ncol} fields, "
+                            f"but the previous record has {prev_ncol} fields\n"
+                        )
+                        return partial_out, err, 1
+                    out_rows.append(row)
+                    prev_ncol = cur_ncol
+        return write_csv(out_rows), "", 0
+    else:  # columns
+        if not all_rows:
+            return "", "", 0
+        headers = list(all_rows[0][0]) if all_rows[0] else []
+        for rs in all_rows[1:]:
+            if rs:
+                headers.extend(rs[0])
+        max_data = max((len(rs) - 1 for rs in all_rows if rs), default=0)
+        out_rows = [headers]
+        for i in range(max_data):
+            row = []
+            for rs in all_rows:
+                data = rs[1:] if rs else []
+                ncol = len(rs[0]) if rs else 0
+                if i < len(data):
+                    row.extend(data[i])
+                elif pad:
+                    row.extend([""] * ncol)
+            out_rows.append(row)
+        return write_csv(out_rows), "", 0
+
+
+HANDLERS["cat"] = cmd_cat
+
+'''
+
+
 def _load_observed_subcommand_help_texts() -> dict[str, str]:
     help_texts: dict[str, str] = {}
     for records_dir in (PRIOR_EVIDENCE_RECORDS, RESTORE_PATCH2_EVIDENCE_RECORDS):
@@ -1134,6 +2267,13 @@ def _patch_source_for_variant(variant: str) -> str:
             f"{PATCH6_SOURCE.rstrip()}\n{PATCH7_SOURCE.rstrip()}\n"
             f"{_observed_help_patch_source()}"
         )
+    if variant == "restore_patch8":
+        return (
+            f"{PATCH_SOURCE.rstrip()}\n{PATCH2_SOURCE.rstrip()}\n"
+            f"{PATCH3_SOURCE.rstrip()}\n{PATCH4_SOURCE.rstrip()}\n"
+            f"{PATCH6_SOURCE.rstrip()}\n{PATCH7_SOURCE.rstrip()}\n"
+            f"{_observed_help_patch_source()}\n{PATCH8_SOURCE.rstrip()}"
+        )
     raise ValueError(f"unknown variant: {variant}")
 
 
@@ -1145,9 +2285,11 @@ def implementation_artifact(variant: str = "restore_patch4") -> str:
         'if __name__ == "__main__":\n'
         "    stdout, stderr, exit_code = main()\n"
         "    if stdout:\n"
-        "        sys.stdout.write(stdout)\n"
+        "        # Write via buffer to avoid Windows text-mode \\n->\\r\\n translation\n"
+        "        # (preserves \\r\\n in --crlf output; no-op on Linux)\n"
+        "        sys.stdout.buffer.write(stdout.encode('utf-8'))\n"
         "    if stderr:\n"
-        "        sys.stderr.write(stderr)\n"
+        "        sys.stderr.buffer.write(stderr.encode('utf-8'))\n"
         "    sys.exit(exit_code)\n"
         "--- END FILE ---\n"
     )
@@ -1301,6 +2443,8 @@ def _run_date_for_variant(variant: str) -> str:
         return "20260520"
     if variant in {"restore_patch5", "restore_patch6", "restore_patch7"}:
         return "20260522"
+    if variant == "restore_patch8":
+        return "20260526"
     return "20260521"
 
 
@@ -1383,6 +2527,7 @@ def run_variant(variant: str, *, official_eval: bool = False, pull: bool = False
         "restore_patch5",
         "restore_patch6",
         "restore_patch7",
+        "restore_patch8",
     }:
         print(f"unknown variant: {variant}", file=sys.stderr)
         return 2
