@@ -1776,6 +1776,8 @@ def cmd_split(args):
     if not positional:
         return "", _p8_usage("split"), 1
     outdir = positional[0]
+    if size <= 0:
+        return "", "--size must be greater than 0.\n", 1
     filepath = positional[1] if len(positional) > 1 else None
     rows = read_csv_data(filepath, delimiter=delimiter)
     if not rows:
