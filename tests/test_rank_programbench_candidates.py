@@ -349,6 +349,33 @@ def test_collect_candidates_ignores_stale_official_eval_failure_report(tmp_path)
     assert row.official_eval_failure_report_path is None
 
 
+def test_collect_candidates_ignores_failure_report_when_official_summary_is_valid(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    task_id = "task.valid-after-timeout"
+    write_official_eval_failure_report(
+        runs,
+        "recovered_candidate",
+        task_id,
+        reason="official_eval_failed_without_eval_json",
+    )
+    write_result(
+        runs / "recovered_candidate",
+        task_id,
+        1.0,
+        1.0,
+        holdout_cases=12,
+        official_eval_summary=official_summary(7, passed_tests=7, total_tests=20),
+    )
+
+    [row] = collect_candidates(runs, official)
+
+    assert row.has_official_eval is True
+    assert row.embedded_official_rank is not None
+    assert row.official_eval_failure_reason is None
+    assert row.official_eval_failure_report_path is None
+
+
 def test_collect_candidates_routes_invalid_embedded_official_summary_as_failure(tmp_path):
     runs = tmp_path / "runs"
     official = tmp_path / "official"
@@ -378,7 +405,7 @@ def test_collect_candidates_routes_invalid_embedded_official_summary_as_failure(
 
     assert row.has_official_eval is True
     assert row.embedded_official_rank is None
-    assert row.official_eval_failure_reason == "official_eval_failed_without_eval_json"
+    assert row.official_eval_failure_reason == "official_eval_invalid_aggregate"
     assert row.official_eval_failure_report_path is None
     assert (
         official_gate_reason(
@@ -387,8 +414,39 @@ def test_collect_candidates_routes_invalid_embedded_official_summary_as_failure(
             min_holdout_rate=0.8,
             min_holdout_cases=10,
         )
-        == "official_eval_failed_without_eval_json"
+        == "official_eval_invalid_aggregate"
     )
+
+
+def test_collect_candidates_routes_results_read_error_summary_as_failure(tmp_path):
+    runs = tmp_path / "runs"
+    official = tmp_path / "official"
+    task_id = "task.results-read"
+    write_result(
+        runs / "new_candidate",
+        task_id,
+        1.0,
+        1.0,
+        holdout_cases=12,
+        official_eval_summary={
+            "counted": {
+                "score": 0,
+                "passed_tests": 0,
+                "total_tests": 100,
+                "pass_rate": 0.0,
+                "fully_resolved": False,
+                "almost_resolved": False,
+                "error_code": "results_read_failed",
+            }
+        },
+    )
+
+    [row] = collect_candidates(runs, official)
+
+    assert row.has_official_eval is True
+    assert row.embedded_official_rank is None
+    assert row.official_eval_failure_reason == "official_eval_results_read_failed"
+    assert row.official_eval_failure_report_path is None
 
 
 def test_collect_candidates_can_include_existing_official_when_candidate_beats_baseline(tmp_path):

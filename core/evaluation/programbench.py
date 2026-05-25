@@ -62,6 +62,7 @@ class ProgramBenchEvalParser:
         total = len(results)
         passed = sum(1 for item in results if isinstance(item, dict) and item.get("status") == "passed")
         pass_rate = passed / total if total else 0.0
+        error_code, error_details = self._operational_error(payload)
         return ProgramBenchEvalSummary(
             total_tests=total,
             passed_tests=passed,
@@ -69,8 +70,8 @@ class ProgramBenchEvalParser:
             score=pass_rate,
             fully_resolved=total > 0 and passed == total,
             almost_resolved=pass_rate >= 0.95 if total else False,
-            error_code=payload.get("error_code"),
-            error_details=payload.get("error_details"),
+            error_code=error_code,
+            error_details=error_details,
             warnings=self._warnings(payload),
         )
 
@@ -122,6 +123,7 @@ class ProgramBenchEvalParser:
         warnings = self._warnings(payload)
         if ignored_branches:
             warnings = [w for w in warnings if not any(f"branch {branch}" in w for branch in ignored_branches)]
+        error_code, error_details = self._operational_error(payload, active_branches=active_branches)
 
         total = len(filtered_results)
         passed = sum(1 for item in filtered_results if item.get("status") == "passed")
@@ -133,10 +135,42 @@ class ProgramBenchEvalParser:
             score=score,
             fully_resolved=total > 0 and passed == total,
             almost_resolved=score >= 0.95 if total else False,
-            error_code=payload.get("error_code"),
-            error_details=payload.get("error_details"),
+            error_code=error_code,
+            error_details=error_details,
             warnings=warnings,
         )
+
+    def _operational_error(
+        self,
+        payload: dict,
+        *,
+        active_branches: set[str] | None = None,
+    ) -> tuple[str | None, str | None]:
+        error_code = payload.get("error_code")
+        error_details = payload.get("error_details")
+        if isinstance(error_code, str) and error_code:
+            return error_code, str(error_details) if error_details else None
+
+        branch_errors = payload.get("test_branch_errors") or {}
+        if not isinstance(branch_errors, dict):
+            return None, None
+        for branch, errors in branch_errors.items():
+            if active_branches is not None and str(branch) not in active_branches:
+                continue
+            if not isinstance(errors, list):
+                continue
+            for item in errors:
+                if not isinstance(item, dict):
+                    continue
+                item_error_code = item.get("error_code")
+                if not isinstance(item_error_code, str) or not item_error_code:
+                    continue
+                item_details = item.get("error_details")
+                details = str(item_details) if item_details else None
+                if details:
+                    details = f"branch {branch}: {details}"
+                return item_error_code, details
+        return None, None
 
     def _warnings(self, payload: dict) -> list[str]:
         warnings = payload.get("warnings") or []

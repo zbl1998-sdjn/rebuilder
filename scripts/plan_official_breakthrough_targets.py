@@ -79,6 +79,13 @@ OFFICIAL_GENERALIZATION_GAP_CLASS = "official_generalization_gap"
 OFFICIAL_GENERALIZATION_GAP_ACTION = "repair_local_generalization_before_more_official_eval"
 OFFICIAL_EVAL_FAILURE_CLASS = "official_eval_operational_failure"
 OFFICIAL_EVAL_FAILURE_ACTION = "repair_official_eval_harness_before_more_official_eval"
+OFFICIAL_EVAL_RESULTS_READ_FAILED_ACTION = "repair_candidate_runtime_timeout_before_more_official_eval"
+OFFICIAL_EVAL_INVALID_AGGREGATE_ACTION = "repair_official_eval_artifacts_before_more_official_eval"
+OFFICIAL_EVAL_OPERATIONAL_FAILURE_REASONS = {
+    "official_eval_failed_without_eval_json",
+    "official_eval_results_read_failed",
+    "official_eval_invalid_aggregate",
+}
 LOCAL_GENERALIZATION_GAP_CLASS = "local_generalization_gap"
 LOCAL_GENERALIZATION_GAP_ACTION = "repair_local_generalization_before_official_eval"
 LOCAL_GENERALIZATION_BLOCKERS = {
@@ -872,8 +879,15 @@ def is_official_eval_operational_failure(
 ) -> bool:
     return (
         row.target_class == "ready_baseline_gate"
-        and "official_eval_failed_without_eval_json" in gate_blockers(gate)
+        and official_eval_operational_failure_reason(gate) is not None
     )
+
+
+def official_eval_operational_failure_reason(gate: dict[str, object] | None) -> str | None:
+    for blocker in gate_blockers(gate):
+        if blocker in OFFICIAL_EVAL_OPERATIONAL_FAILURE_REASONS:
+            return blocker
+    return None
 
 
 def local_generalization_blocker(gate: dict[str, object] | None) -> str | None:
@@ -911,6 +925,11 @@ def planned_next_action(
     gate: dict[str, object] | None,
 ) -> str:
     if is_official_eval_operational_failure(row, gate):
+        reason = official_eval_operational_failure_reason(gate)
+        if reason == "official_eval_results_read_failed":
+            return OFFICIAL_EVAL_RESULTS_READ_FAILED_ACTION
+        if reason == "official_eval_invalid_aggregate":
+            return OFFICIAL_EVAL_INVALID_AGGREGATE_ACTION
         return OFFICIAL_EVAL_FAILURE_ACTION
     if is_official_generalization_gap(row, gate):
         return OFFICIAL_GENERALIZATION_GAP_ACTION
@@ -924,7 +943,7 @@ def planned_reason(
     gate: dict[str, object] | None,
 ) -> str:
     if is_official_eval_operational_failure(row, gate):
-        return "official_eval_failed_without_eval_json"
+        return official_eval_operational_failure_reason(gate) or "official_eval_invalid_aggregate"
     if is_official_generalization_gap(row, gate):
         return "official_not_above_baseline"
     if is_local_generalization_gap(row, gate):

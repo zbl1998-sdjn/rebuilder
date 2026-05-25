@@ -282,6 +282,27 @@ def test_run_programbench_eval_continues_when_eval_json_exists(tmp_path, monkeyp
     run_programbench_eval(parsed, paths)
 
 
+def test_run_programbench_eval_clears_stale_failure_report_on_success(tmp_path, monkeypatch):
+    parsed = args()
+    paths = build_paths(parsed.instance_id, parsed.runs, tmp_path / "eval", "submission_owner_repo")
+    report = paths.submission_root / "official_eval_failure_report.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        json.dumps({"reason": "official_eval_failed_without_eval_json"}),
+        encoding="utf-8",
+    )
+
+    def fake_run_command(_command, **_kwargs):
+        paths.eval_json.parent.mkdir(parents=True, exist_ok=True)
+        paths.eval_json.write_text(json.dumps({"test_results": []}), encoding="utf-8")
+
+    monkeypatch.setattr("scripts.run_official_closed_loop.run_command", fake_run_command)
+
+    run_programbench_eval(parsed, paths)
+
+    assert not report.exists()
+
+
 def test_run_programbench_eval_passes_configured_timeout(monkeypatch):
     parsed = args(official_eval_timeout_seconds=12.5)
     paths = build_paths(parsed.instance_id, parsed.runs, "runs/eval", "submission_owner_repo")
@@ -405,8 +426,56 @@ def test_summarize_eval_records_operational_failure_for_zero_test_eval_json(tmp_
     assert image_cleaned == [parsed.instance_id]
     report = paths.submission_root / "official_eval_failure_report.json"
     payload = json.loads(report.read_text(encoding="utf-8"))
-    assert payload["reason"] == "official_eval_failed_without_eval_json"
+    assert payload["reason"] == "official_eval_invalid_aggregate"
     assert "0 counted tests" in payload["error"]
+    assert payload["artifacts"]["eval_json"]["exists"] is True
+
+
+def test_summarize_eval_records_operational_failure_for_branch_read_error(
+    tmp_path, monkeypatch
+):
+    parsed = args()
+    paths = build_paths(parsed.instance_id, parsed.runs, tmp_path / "eval", "submission_owner_repo")
+    paths.eval_json.parent.mkdir(parents=True)
+    paths.eval_json.write_text(
+        json.dumps(
+            {
+                "test_results": [
+                    {
+                        "name": "case",
+                        "branch": "active",
+                        "status": "not_run",
+                        "extra": {"error_code": "results_read_failed"},
+                    }
+                ],
+                "test_branch_errors": {
+                    "active": [
+                        {
+                            "error_code": "results_read_failed",
+                            "error_details": "cat: eval/results.xml: No such file or directory",
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "scripts.run_official_closed_loop.cleanup_programbench_eval_containers",
+        lambda _instance_id: [],
+    )
+    monkeypatch.setattr(
+        "scripts.run_official_closed_loop.cleanup_programbench_eval_images",
+        lambda _instance_id: [],
+    )
+
+    with pytest.raises(RuntimeError, match="results_read_failed"):
+        summarize_eval(paths.eval_json, parsed.instance_id, args=parsed, paths=paths, command=["py", "-3.14"])
+
+    report = paths.submission_root / "official_eval_failure_report.json"
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["reason"] == "official_eval_results_read_failed"
+    assert "results_read_failed" in payload["error"]
     assert payload["artifacts"]["eval_json"]["exists"] is True
 
 

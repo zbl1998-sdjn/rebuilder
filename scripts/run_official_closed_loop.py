@@ -801,6 +801,23 @@ def official_eval_failure_report_path(paths: ClosedLoopPaths) -> Path:
     return paths.submission_root / "official_eval_failure_report.json"
 
 
+def official_eval_failure_reason(error: RuntimeError, paths: ClosedLoopPaths) -> str:
+    error_text = str(error)
+    if "results_read_failed" in error_text:
+        return "official_eval_results_read_failed"
+    if paths.eval_json.exists():
+        return "official_eval_invalid_aggregate"
+    return "official_eval_failed_without_eval_json"
+
+
+def clear_official_eval_failure_report(paths: ClosedLoopPaths) -> None:
+    report_path = official_eval_failure_report_path(paths)
+    try:
+        report_path.unlink(missing_ok=True)
+    except OSError as exc:  # pragma: no cover - best-effort evidence hygiene
+        print(f"WARNING: stale official eval failure report cleanup failed: {exc}", flush=True)
+
+
 def write_official_eval_failure_report(
     *,
     args: argparse.Namespace,
@@ -817,7 +834,7 @@ def write_official_eval_failure_report(
         "schema_version": 1,
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "instance_id": args.instance_id,
-        "reason": "official_eval_failed_without_eval_json",
+        "reason": official_eval_failure_reason(error, paths),
         "error": str(error),
         "command": command,
         "timeout_seconds": getattr(args, "official_eval_timeout_seconds", 0.0),
@@ -877,6 +894,7 @@ def run_programbench_eval(args: argparse.Namespace, paths: ClosedLoopPaths) -> N
     command = build_programbench_eval_command(args, paths)
     stdout_log = paths.submission_root / "official_eval_stdout.log"
     stderr_log = paths.submission_root / "official_eval_stderr.log"
+    clear_official_eval_failure_report(paths)
     try:
         timeout_seconds = getattr(args, "official_eval_timeout_seconds", 0.0)
         if timeout_seconds and timeout_seconds > 0:

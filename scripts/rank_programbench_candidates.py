@@ -540,6 +540,8 @@ def read_candidate_row(
         str(task_id),
         official_eval_root=official_eval_root,
     )
+    if embedded_official_rank is not None:
+        failure_report_path = None
     failure_reason = read_official_eval_failure_reason(failure_report_path, str(task_id))
     if failure_reason is None:
         failure_reason = embedded_failure_reason
@@ -562,6 +564,7 @@ def read_candidate_row(
         static_output_assets_enabled=as_optional_bool(metadata.get("static_output_assets_enabled")),
         has_official_eval=(
             task_id in official_task_ids
+            or embedded_official_rank is not None
             or failure_report_path is not None
             or embedded_failure_reason is not None
         ),
@@ -711,8 +714,20 @@ def official_eval_failure_reason_from_result_payload(payload: dict[str, object])
     if isinstance(raw, dict):
         sections.append(raw)
     for section in sections:
-        if section_has_invalid_official_eval_payload(section):
-            return "official_eval_failed_without_eval_json"
+        reason = official_eval_section_failure_reason(section)
+        if reason is not None:
+            return reason
+    return None
+
+
+def official_eval_section_failure_reason(summary: dict[str, object]) -> str | None:
+    error_code = summary.get("error_code")
+    if isinstance(error_code, str) and error_code:
+        if error_code == "results_read_failed":
+            return "official_eval_results_read_failed"
+        return "official_eval_invalid_aggregate"
+    if section_has_invalid_official_eval_payload(summary):
+        return "official_eval_invalid_aggregate"
     return None
 
 

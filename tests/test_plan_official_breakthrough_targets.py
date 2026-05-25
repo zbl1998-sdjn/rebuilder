@@ -940,6 +940,66 @@ def test_json_ready_rows_route_failed_official_eval_to_operational_failure(tmp_p
     assert gate["candidate"]["official_eval_failure_report_path"] == str(report_path)
 
 
+def test_json_ready_rows_route_results_read_failed_to_operational_failure(tmp_path):
+    runs = tmp_path / "runs"
+    baselines = tmp_path / "baselines"
+    runtime_smoke = {
+        "status": "passed",
+        "case_count": 4,
+        "contract_case_count": 4,
+        "input_dimensions": ["args", "input_files"],
+    }
+    task_id = "task.ready"
+    report_path = write_official_eval_failure_report(
+        runs,
+        "ready",
+        task_id,
+        reason="official_eval_results_read_failed",
+    )
+    write_baseline(baselines / "ready.baseline.json", task_id, 62)
+    write_result(
+        runs / "ready",
+        task_id,
+        0.90,
+        12,
+        smoke_contract_axis_count=2,
+        runtime_smoke=runtime_smoke,
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/plan_official_breakthrough_targets.py",
+            "--runs",
+            str(runs),
+            "--baseline-root",
+            str(baselines),
+            "--baseline-upgrade-require-runtime-smoke-dimensions",
+            "args,input_files",
+            "--include-next-command",
+            "--format",
+            "json",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    [row] = payload["rows"]
+    assert row["target_class"] == "official_eval_operational_failure"
+    assert row["next_action"] == "repair_candidate_runtime_timeout_before_more_official_eval"
+    assert row["reason"] == "official_eval_results_read_failed"
+    gate = row["baseline_upgrade_gate"]
+    assert gate["reason"] == "official_eval_results_read_failed"
+    assert gate["blockers"] == ["official_eval_results_read_failed"]
+    assert gate["candidate"]["official_eval_failure_reason"] == (
+        "official_eval_results_read_failed"
+    )
+    assert gate["candidate"]["official_eval_failure_report_path"] == str(report_path)
+
+
 def test_json_ready_rows_route_worse_official_summary_to_generalization_gap(tmp_path):
     runs = tmp_path / "runs"
     baselines = tmp_path / "baselines"
