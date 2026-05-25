@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-22T16:14:05.398533+00:00",
+  "recorded_at": "2026-05-25T22:06:47.786728+00:00",
   "instance_id": "burntsushi__xsv.f430466",
-  "model": "codex-file-bridge-xsv-restore_patch7",
-  "config_path": "C:\\Users\\Administrator\\Desktop\\ReBuilder\\output\\file_bridge_manual\\smoke_file_bridge_xsv_restore_patch7.yaml",
-  "notes": "Official closed-loop aggregate baseline: 590/1186 counted tests, score 50; raw eval 671/1317; aggregate-only.",
+  "model": "claude-file-bridge-xsv-restore_patch8",
+  "config_path": "output/file_bridge_manual/run_xsv_file_bridge.py restore_patch8",
+  "notes": "Official aggregate baseline: 832/1186 counted tests, score 70; raw eval 953/1317; aggregate-only. No-external-LLM file_bridge restore_patch8 broad subcommand reimplementation (stats/flatten/fmt/split/cat/headers/...); split --size 0 infinite-loop fixed. Supersedes patch7 score 50.",
   "local": {
-    "status": "success",
-    "resolved_rate": 0.9901960784313726,
-    "holdout_resolved_rate": 0.8,
+    "status": "partial",
+    "resolved_rate": 0.9705882352941176,
+    "holdout_resolved_rate": 0.8666666666666667,
     "probes_conducted": 61,
     "iterations_used": 0
   },
   "official": {
-    "passed_tests": 590,
+    "passed_tests": 832,
     "total_tests": 1186,
-    "pass_rate": 0.4974704890387858,
-    "score": 50,
+    "pass_rate": 0.7015177065767285,
+    "score": 70,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\programbench_official_eval\\submission_xsv_restore_patch7_20260522\\burntsushi__xsv.f430466\\submission.tar.gz",
-    "sha256": "93672d2dbda8b895612a21fafcc6d4905afb01ac099be274152eeffda69f032c"
+    "path": "runs\\programbench_official_eval\\submission_xsv_restore_patch8_20260526\\burntsushi__xsv.f430466\\submission.tar.gz",
+    "sha256": "cb6333d2be3af265d8e8144d207f7e81f9c1aecd755a728433eea393cac11ce5"
   }
 }

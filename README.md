@@ -63,8 +63,13 @@ Verified locally on Windows with Docker Desktop:
   solved task.
 - Seventh non-zoxide official generalization baseline:
   `burntsushi__xsv.f430466` ProgramBench info score improved from `41` to
-  `44` (`518/1186` counted tests; raw eval `593/1317`) after CSV/xsv strategy
-  pack refinement. Local holdout was `9/11`.
+  `50` after CSV/xsv strategy pack refinement, then to `70` (`832/1186`
+  counted tests; raw eval `953/1317`) via a no-external-LLM `file_bridge`
+  `restore_patch8` that reimplements many subcommands (stats/flatten/fmt/
+  split/cat/headers/...) as general algorithms found by black-box differential
+  probing, and fixes a `split --size 0` infinite loop. Remaining mismatches
+  (Rust HashMap tie order, RNG) are intentionally not overfit. This is an
+  aggregate official baseline upgrade, not a solved task.
 - Eighth non-zoxide official generalization baseline:
   `tomnomnom__gron.88a6234` ProgramBench info score improved from `26` to
   `62` (`140/224` counted tests; raw eval `148/233`) after a no-external-LLM
@@ -909,9 +914,9 @@ MIT License.
 | 87 | wfxr__csview | 291/335 | csview axis 修复（57→87） |
 | 86 | chmln__sd | 699/810 | file_bridge `baseline_regex_patch1` |
 | 79 | jarun__nnn | 379/477 | 闭环候选 |
+| 70 | burntsushi__xsv | 832/1186 | 无外部 LLM file_bridge restore_patch8 broad subcommand 重写（50→70；raw 953/1317） |
 | 66 | rbakbashev__elfcat | 371/564 | file_bridge reference patch（17→…→66） |
 | 62 | tomnomnom__gron | 140/224 | 无外部 LLM file_bridge restoration（26→62） |
-| 50 | burntsushi__xsv | 590/1186 | CSV strategy pack + file_bridge restore_patch7（41→50） |
 | 45 | clog-tool__clog-cli | 260/575 | file_bridge restoration |
 | 40 | agourlay__zip-password-finder | 274/680 | archive/clap strategy pack（26→40） |
 | 37 | ajeetdsouza__zoxide | 195/531 | glm-5.1（18→37）；本地 holdout 偏弱 |
