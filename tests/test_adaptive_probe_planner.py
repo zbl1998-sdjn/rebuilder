@@ -59,6 +59,29 @@ def test_html_selector_profile_generates_selector_mutation_and_error_probes():
     _assert_safe_relative_input_paths(probes)
 
 
+def test_syntax_highlighter_profile_generates_formatter_html_and_bound_probes():
+    probes = AdaptiveProbePlanner().plan({"primary_domain": "syntax_highlighter"})
+
+    assert 10 <= len(probes) <= 14
+    descriptions = _axis_descriptions(probes)
+    assert "adaptive_axis:syntax_highlighter.invalid_formatter" in descriptions
+    assert "adaptive_axis:syntax_highlighter.lexer_stdin" in descriptions
+    assert "adaptive_axis:syntax_highlighter.filename_stdin" in descriptions
+    assert "adaptive_axis:syntax_highlighter.terminal16m_formatter" in descriptions
+    assert "adaptive_axis:syntax_highlighter.tokens_formatter" in descriptions
+    assert "adaptive_axis:syntax_highlighter.noop_formatter" in descriptions
+    assert "adaptive_axis:syntax_highlighter.html_inline_file" in descriptions
+    assert "adaptive_axis:syntax_highlighter.html_line_table" in descriptions
+    assert "adaptive_axis:syntax_highlighter.style_css" in descriptions
+    assert "adaptive_axis:syntax_highlighter.multi_file" in descriptions
+    assert "adaptive_axis:syntax_highlighter.explicit_dash_stdin" in descriptions
+    assert "adaptive_axis:syntax_highlighter.bounded_large_file" in descriptions
+    assert any(probe.args == ["--formatter", "tokens", "--lexer", "python"] for probe in probes)
+    assert any(probe.args[:3] == ["--html", "--html-only", "--html-lines"] for probe in probes)
+    assert any(probe.input_files.get("large.py") for probe in probes)
+    _assert_safe_relative_input_paths(probes)
+
+
 def test_go_dependency_report_profile_generates_ndjson_and_flag_probes():
     probes = AdaptiveProbePlanner().plan({"primary_domain": "go_dependency_report"})
 
@@ -240,6 +263,7 @@ def test_high_signal_domains_emit_named_smoke_contract_axes():
         "archive_compression",
         "binary_hexdump",
         "find_replace",
+        "syntax_highlighter",
         "terminal_ui",
         "filesystem_tool",
         "terminal_animation",

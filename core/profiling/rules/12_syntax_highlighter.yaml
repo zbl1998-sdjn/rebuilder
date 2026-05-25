@@ -1,0 +1,93 @@
+domain: syntax_highlighter
+keywords:
+- syntax highlighter
+- syntax highlighting
+- highlighter
+- highlight
+- lexer
+- formatter
+- chroma
+- pygments
+- terminal16m
+- terminal256
+- terminal8
+- tokens
+- html-only
+- html-lines
+- html-styles
+- line numbers
+- source code
+formats:
+- source code
+- terminal
+- html
+- css
+- json
+- svg
+- tokens
+implementation_hints:
+- Model lexer selection, style lookup, and formatter output as independent dispatch
+  layers so stdin, filename inference, and file operands share the same highlighting core.
+- Keep formatter outputs bounded and deterministic; HTML, terminal, token, JSON, SVG,
+  and CSS-style modes should not fall through to file-open errors for ordinary input.
+repair_hints:
+- For syntax-highlighter mismatches, check formatter alias handling, lexer inference,
+  style-file fallback, stdin/file parity, HTML line options, and bounded output behavior
+  before changing token rendering.
+- Treat timeout-like failures as a dispatch or output-growth bug first, especially for
+  HTML line tables, multi-file input, and large source files.
+implementation_playbook:
+- Parse flags into separate lexer, formatter, style, input-source, and HTML-option
+  structures instead of branching on one combined argv template.
+- Support explicit lexer selection and filename-based lexer inference for stdin and file
+  input; keep an unknown lexer branch separate from missing file diagnostics.
+- Implement formatter aliases such as terminal, terminal8, terminal16, terminal16m,
+  terminal256, noop, tokens, html, json, and svg when they are present in evidence.
+- For invalid formatter values, emit a deterministic diagnostic that lists the accepted
+  formatter names rather than falling back to a default renderer.
+- For HTML output, handle html-only, inline styles, line numbers, line tables, linkable
+  line ids, highlighted lines, and style CSS output as independent options.
+- Escape source HTML and source-code text before embedding it in HTML output; do not let
+  input markup become selected DOM nodes.
+- Read multiple files in operand order, preserve stdin marker behavior for "-", and keep
+  stdout/stderr/exit-code contracts independent for each error branch.
+- Bound rendering loops and output construction for larger files; generate line rows and
+  token spans in one pass instead of repeatedly reparsing accumulated HTML.
+repair_playbook:
+- If terminal or token output mismatches, compare formatter alias dispatch before editing
+  lexer token rules.
+- If stdin cases pass but file cases fail, check shared source loading and filename-based
+  lexer inference rather than adding file-specific templates.
+- If HTML output mismatches, compare escaping, inline-style placement, table wrappers,
+  linkable line ids, highlighted line classes, and final newline behavior separately.
+- If --html-styles or --style fails, distinguish built-in style names from unknown values
+  that may be treated as style-file paths.
+- If invalid formatter or invalid lexer diagnostics differ, preserve accepted-name lists,
+  channel, and exit code before changing rendering.
+- For multi-file failures, verify operand order, separator behavior, per-file error
+  handling, and whether one bad file should stop later files.
+- For timeout or runaway output, inspect nested loops around line tables, repeated string
+  concatenation, recursive highlighting, and accidental reading of directories as files.
+generalization_playbook:
+- Keep unseen holdout coverage for explicit lexer, filename-inferred lexer, stdin marker,
+  single file, multiple files, formatter aliases, invalid formatter, unknown style,
+  HTML options, CSS style output, and larger source files.
+- Validate unseen source languages and mixed content such as HTML with script text; the
+  renderer should escape input and keep lexer/formatter dispatch separate.
+- Prefer reusable source loading and formatter rendering paths over per-case templates so
+  new filenames, styles, and source sizes keep the same semantics.
+validation_playbook:
+- Smoke explicit lexer over stdin, filename-based stdin, single file, multiple files,
+  explicit "-" stdin, invalid formatter, unknown style, and no-input behavior.
+- Smoke terminal, noop, token, HTML inline, HTML line-table/linkable/highlighted lines,
+  CSS-style, JSON, and SVG output modes when those flags appear in evidence.
+- Validate bounded runtime and output size for moderately large files before accepting a
+  syntax-highlighter candidate as locally stable.
+anti_patterns:
+- Do not classify syntax-highlighter HTML output as an HTML selector or DOM extraction
+  task; source HTML is input text that must be escaped or highlighted.
+- Do not open built-in style names as files unless evidence shows that exact fallback.
+- Do not implement formatter aliases as independent unrelated code paths with divergent
+  input loading and error handling.
+- Do not build HTML output with repeated whole-document reparsing or unbounded nested
+  loops over every character and every line.

@@ -19,7 +19,7 @@ def test_collect_strategy_domain_coverage_includes_every_profile_rule_domain():
 
     rows = module.collect_strategy_domain_coverage()
 
-    assert len(rows) == 11
+    assert len(rows) == 12
     assert {row.domain for row in rows} == {
         "archive_compression",
         "binary_hexdump",
@@ -30,6 +30,7 @@ def test_collect_strategy_domain_coverage_includes_every_profile_rule_domain():
         "html_selector",
         "json_transform",
         "network_ping",
+        "syntax_highlighter",
         "terminal_animation",
         "terminal_ui",
     }
@@ -105,7 +106,7 @@ def test_strategy_domain_coverage_cli_outputs_machine_readable_json_without_bann
     payload = json.loads(result.stdout)
     assert payload["schema_version"] == 1
     assert payload["row_count"] == 3
-    assert payload["total_row_count"] == 11
+    assert payload["total_row_count"] == 12
     assert payload["limit"] == 3
     assert [row["rank"] for row in payload["rows"]] == [1, 2, 3]
     first = payload["rows"][0]

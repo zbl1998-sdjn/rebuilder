@@ -18,6 +18,7 @@ SUPPORTED_DOMAINS = frozenset(
         "go_dependency_report",
         "json_transform",
         "network_ping",
+        "syntax_highlighter",
         "terminal_animation",
         "terminal_ui",
     }
@@ -351,6 +352,162 @@ def html_selector_probes() -> list[TestCase]:
                 "html_selector",
                 "malformed_html",
                 "recovery around malformed markup",
+            ),
+        ),
+    ]
+
+def syntax_highlighter_probes() -> list[TestCase]:
+    python_source = (
+        "import sys\n\n"
+        "def greet(name):\n"
+        "    print(f'hello {name}')\n\n"
+        "if __name__ == '__main__':\n"
+        "    greet(sys.argv[1] if len(sys.argv) > 1 else 'world')\n"
+    )
+    javascript_source = (
+        "const items = [1, 2, 3];\n"
+        "console.log(items.map((value) => value * 2).join(','));\n"
+    )
+    html_source = (
+        "<!doctype html>\n"
+        "<html><body><script>const x = 1 < 2;</script><p>hello</p></body></html>\n"
+    )
+    bounded_source = "\n".join(
+        f"def generated_{index}(): return {index}"
+        for index in range(200)
+    ) + "\n"
+    return [
+        TestCase(
+            name="adaptive_syntax_highlighter_invalid_formatter",
+            args=["--formatter", "not_a_formatter"],
+            stdin=python_source,
+            description=axis(
+                "syntax_highlighter",
+                "invalid_formatter",
+                "formatter validation and diagnostic wording",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_lexer_stdin",
+            args=["--lexer", "python"],
+            stdin=python_source,
+            description=axis(
+                "syntax_highlighter",
+                "lexer_stdin",
+                "explicit lexer over stdin source",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_filename_stdin",
+            args=["--filename", "demo.py"],
+            stdin=python_source,
+            description=axis(
+                "syntax_highlighter",
+                "filename_stdin",
+                "filename-based lexer inference for stdin",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_terminal16m_formatter",
+            args=["--formatter", "terminal16m", "--lexer", "javascript"],
+            stdin=javascript_source,
+            description=axis(
+                "syntax_highlighter",
+                "terminal16m_formatter",
+                "terminal truecolor formatter alias over stdin",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_tokens_formatter",
+            args=["--formatter", "tokens", "--lexer", "python"],
+            stdin=python_source,
+            description=axis(
+                "syntax_highlighter",
+                "tokens_formatter",
+                "token-stream formatter output mode",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_noop_formatter",
+            args=["--formatter", "noop", "--lexer", "python"],
+            stdin=python_source,
+            description=axis(
+                "syntax_highlighter",
+                "noop_formatter",
+                "formatter mode that preserves raw source",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_html_inline_file",
+            args=["--html", "--html-only", "--html-inline-styles", "snippet.html"],
+            input_files=safe_input_files({"snippet.html": html_source.encode("utf-8")}),
+            description=axis(
+                "syntax_highlighter",
+                "html_inline_file",
+                "HTML formatter over file input with inline styles",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_html_line_table",
+            args=[
+                "--html",
+                "--html-only",
+                "--html-lines",
+                "--html-lines-table",
+                "--html-linkable-lines",
+                "--html-highlight",
+                "2",
+                "snippet.py",
+            ],
+            input_files=safe_input_files({"snippet.py": python_source.encode("utf-8")}),
+            description=axis(
+                "syntax_highlighter",
+                "html_line_table",
+                "line-number table, linkable ids, and highlighted line output",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_style_css",
+            args=["--html-styles", "--style", "github"],
+            description=axis(
+                "syntax_highlighter",
+                "style_css",
+                "style stylesheet output without source input",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_multi_file",
+            args=["--lexer", "python", "a.py", "b.py"],
+            input_files=safe_input_files(
+                {
+                    "a.py": b"print('a')\n",
+                    "b.py": b"print('b')\n",
+                }
+            ),
+            description=axis(
+                "syntax_highlighter",
+                "multi_file",
+                "multiple file operands with shared lexer selection",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_explicit_dash_stdin",
+            args=["--lexer", "python", "-"],
+            stdin=python_source,
+            description=axis(
+                "syntax_highlighter",
+                "explicit_dash_stdin",
+                "dash operand as explicit stdin marker",
+            ),
+        ),
+        TestCase(
+            name="adaptive_syntax_highlighter_bounded_large_file",
+            args=["--html", "--html-only", "--html-lines", "large.py"],
+            input_files=safe_input_files({"large.py": bounded_source.encode("utf-8")}),
+            description=axis(
+                "syntax_highlighter",
+                "bounded_large_file",
+                "bounded large source file rendering without runaway output or timeout",
             ),
         ),
     ]
@@ -1180,6 +1337,7 @@ DOMAIN_PROBE_BUILDERS: dict[str, Callable[[], list[TestCase]]] = {
     "html_selector": html_selector_probes,
     "json_transform": json_transform_probes,
     "network_ping": network_ping_probes,
+    "syntax_highlighter": syntax_highlighter_probes,
     "terminal_animation": terminal_animation_probes,
     "terminal_ui": terminal_ui_probes,
 }

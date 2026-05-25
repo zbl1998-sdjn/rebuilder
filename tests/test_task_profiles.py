@@ -123,6 +123,22 @@ def test_profile_detects_common_data_tool_domains():
         assert profile["primary_domain"] == expected
 
 
+def test_profile_detects_syntax_highlighter_from_chroma_docs():
+    profile = infer_task_profile(
+        documentation=(
+            "Chroma is a syntax highlighter for source code. It selects lexers, "
+            "formatter aliases like terminal16m and tokens, and can emit html-only "
+            "line-numbered output with html-styles CSS."
+        )
+    )
+
+    assert profile["primary_domain"] == "syntax_highlighter"
+    assert "syntax_highlighter" in profile["domains"]
+    assert profile["strategy_pack"]["domain"] == "syntax_highlighter"
+    assert any("formatter aliases" in step for step in profile["strategy_pack"]["implementation_playbook"])
+    assert any("moderately large files" in step for step in profile["strategy_pack"]["validation_playbook"])
+
+
 class ProfileLLM(BaseLLMClient):
     def __init__(self):
         super().__init__("fake-key", "http://fake", "mock-model")
@@ -379,6 +395,33 @@ def test_html_selector_profile_exposes_mutation_and_panic_guidance():
     assert "code, kind, and message fields" in repair_prompt
     assert "written file contents" in repair_prompt
     assert "newline placement around text nodes" in repair_prompt
+
+
+def test_syntax_highlighter_profile_exposes_formatter_and_timeout_guidance():
+    spec = ProgramSpec(
+        complexity_hints={
+            "task_profile": infer_task_profile(
+                documentation=(
+                    "Chroma syntax highlighter with lexer selection, formatter aliases, "
+                    "terminal16m, tokens, html-only, html-lines, html-styles, and SVG output."
+                )
+            )
+        }
+    )
+
+    implementation_prompt = task_profile_prompt(spec)
+    repair_prompt = task_profile_prompt(spec, purpose="repair")
+
+    assert "syntax_highlighter" in implementation_prompt
+    assert "formatter aliases" in implementation_prompt
+    assert "filename-based lexer inference" in implementation_prompt
+    assert "html-only" in implementation_prompt
+    assert "line tables" in implementation_prompt
+    assert "Escape source HTML" in implementation_prompt
+    assert "Bound rendering loops" in implementation_prompt
+    assert "timeout or runaway output" in repair_prompt
+    assert "style-file paths" in repair_prompt
+    assert "invalid formatter" in repair_prompt
 
 
 def test_go_dependency_profile_exposes_go_flag_and_table_guidance():
