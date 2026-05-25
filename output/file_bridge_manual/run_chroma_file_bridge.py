@@ -193,7 +193,8 @@ GENERALIZATION_PROBE_RESPONSE = [
 
 GENERALIZATION_VARIANT = "restore_patch2_generalization_probe"
 GENERALIZATION_REPAIR_VARIANT = "restore_patch3_generalization_probe"
-GENERALIZATION_VARIANTS = {GENERALIZATION_VARIANT, GENERALIZATION_REPAIR_VARIANT}
+GENERALIZATION_PATH_VARIANT = "restore_patch4_generalization_probe"
+GENERALIZATION_VARIANTS = {GENERALIZATION_VARIANT, GENERALIZATION_REPAIR_VARIANT, GENERALIZATION_PATH_VARIANT}
 GENERALIZATION_EXCLUDED_DOMAINS = ("csv_table", "go_dependency_report", "json_transform")
 
 
@@ -202,7 +203,11 @@ def uses_patch2(variant: str) -> bool:
 
 
 def uses_patch3(variant: str) -> bool:
-    return variant == GENERALIZATION_REPAIR_VARIANT
+    return variant in {GENERALIZATION_REPAIR_VARIANT, GENERALIZATION_PATH_VARIANT}
+
+
+def uses_patch4(variant: str) -> bool:
+    return variant == GENERALIZATION_PATH_VARIANT
 
 
 def is_generalization_probe_variant(variant: str) -> bool:
@@ -303,6 +308,8 @@ def render_html_line(line):
         source = apply_patch2(source)
     if uses_patch3(variant):
         source = apply_patch3(source)
+    if uses_patch4(variant):
+        source = apply_patch4(source)
     return source
 
 
@@ -1268,6 +1275,35 @@ def run_general_formatter(opts):
     return source
 
 
+def apply_patch4(source: str) -> str:
+    # Fix display_path to use posixpath.normpath so that `.`, `..`, and
+    # redundant separators collapse correctly (e.g. "." → "/rebuilder-work",
+    # "sub/../a.py" → "/rebuilder-work/a.py").  The anchor at /rebuilder-work
+    # is intentional and must be preserved.
+    old_display_path = (
+        "def display_path(path):\n"
+        '    return "/rebuilder-work/" + path.replace("\\\\", "/").lstrip("/")\n'
+    )
+    new_display_path = (
+        "def display_path(path):\n"
+        '    joined = "/rebuilder-work/" + path.replace("\\\\", "/").lstrip("/")\n'
+        "    return posixpath.normpath(joined)\n"
+    )
+    if old_display_path not in source:
+        raise RuntimeError("apply_patch4: unable to find display_path snippet to patch")
+    source = source.replace(old_display_path, new_display_path)
+    # Ensure posixpath is imported in the generated source.
+    # patch2 adds display_path after the existing `import os` line at the
+    # module top, so we inject `import posixpath` immediately after `import os`.
+    old_import = "import os\n"
+    new_import = "import os\nimport posixpath\n"
+    if new_import not in source:
+        if old_import not in source:
+            raise RuntimeError("apply_patch4: unable to find 'import os' line to inject posixpath import")
+        source = source.replace(old_import, new_import, 1)
+    return source
+
+
 def json_default(value: object) -> object:
     if isinstance(value, bytes):
         return {
@@ -1478,7 +1514,12 @@ def run_variant(
         print(f"missing source: {BASE_SOURCE}", file=sys.stderr)
         return 2
 
-    run_date = "20260521" if variant == GENERALIZATION_REPAIR_VARIANT else "20260520"
+    if variant == GENERALIZATION_PATH_VARIANT:
+        run_date = "20260526"
+    elif variant == GENERALIZATION_REPAIR_VARIANT:
+        run_date = "20260521"
+    else:
+        run_date = "20260520"
     run_name = f"file_bridge_no_external_chroma_{run_date}_{variant}"
     request_dir = ROOT / "output" / "file_bridge_manual" / f"requests_chroma_{variant}"
     config_path = ROOT / "output" / "file_bridge_manual" / f"smoke_file_bridge_chroma_{variant}.yaml"
@@ -1545,6 +1586,7 @@ def parse_args() -> argparse.Namespace:
             "restore_patch2",
             GENERALIZATION_VARIANT,
             GENERALIZATION_REPAIR_VARIANT,
+            GENERALIZATION_PATH_VARIANT,
         ],
     )
     parser.add_argument("--prepare-only", action="store_true")
