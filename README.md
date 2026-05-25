@@ -899,13 +899,22 @@ MIT License.
 
 ## 2026-05 官方突破进展
 
-- agourlay__zip-password-finder: 首次非 zoxide 任务官方突破，aggregate-only；后续 archive/clap strategy pack 闭环将 ProgramBench info 分数从 26 提升到 36。
-- abishekvashok__cmatrix: 第二个非 zoxide 官方突破，historical adaptive-profile cleanroom-local patch 后 ProgramBench info 分数已提升到 95；仍不是 fully resolved。
-- chmln__sd: 新增非 zoxide 官方 aggregate 强基线，ProgramBench info 分数 86（最新 699/810 counted；raw eval 752/869），`baseline_regex_patch1` 本地 holdout 12/12，runtime smoke 覆盖 args/stdin/input_files/default；这是同分计数提升，仍不是 fully resolved。
-- rbakbashev__elfcat: 2026-05-20 使用无外部 LLM 的 file_bridge missing-holdout probe 后复用 package 做官方 eval，将历史低样本 ProgramBench info 分数从 17 提升到 38（215/564 counted；raw eval 288/646）；仍不是 fully resolved。
-- tomnomnom__gron: 使用无外部 LLM 的 file_bridge restoration patch，将官方 ProgramBench info 分数从 26 提升到 62（140/224 counted；raw eval 148/233），本地 exploration 45/45、holdout 13/14、runtime smoke 覆盖 args/stdin/input_files/default；仍不是 fully resolved。
-- mgdm__htmlq: 使用无外部 LLM 的 file_bridge restoration patch，将官方 ProgramBench info 分数从 8 提升到 91（1330/1455 counted；raw eval 1881/2058），本地 exploration 48/49、holdout 14/15、runtime smoke 覆盖 args/stdin/input_files/default；仍不是 fully resolved。
-- ajeetdsouza__zoxide: 官方分数 37（前为 18），aggregate-only。
-- alecthomas__chroma: 使用无外部 LLM 的 file_bridge syntax-highlighter restore/generalization patch（restore_patch3_generalization_probe），将官方 ProgramBench info 分数从 3 提升到 13（65/515 counted；raw eval 73/531），本地 exploration/holdout 在 40-case min-holdout gate 下均为 100%；早期 restore_patch2 候选本地 100% 但官方 0（0/515），patch3 generalization 探针是首个 chroma 官方升级，仍不是 fully resolved。
+当前已固化 13 条官方 aggregate baseline（取自 `baselines/programbench/*.baseline.json`，按 ProgramBench info score 排序；均为 aggregate-only，`fully_resolved=false`，不是 solved task）：
 
-当前已沉淀多条官方 aggregate baseline，均只记录 aggregate summary 与 submission hash。后续继续推进更多任务族的稳定泛化与 hidden 全解。
+| score | task | counted | 备注 |
+| ----: | ---- | ------- | ---- |
+| 95 | abishekvashok__cmatrix | 481/508 | adaptive-profile cleanroom-local patch（77→95） |
+| 94 | psampaz__go-mod-outdated | 267/285 | go-mod markdown table 闭环 |
+| 91 | mgdm__htmlq | 1330/1455 | 无外部 LLM file_bridge restoration（8→91） |
+| 87 | wfxr__csview | 291/335 | csview axis 修复（57→87） |
+| 86 | chmln__sd | 699/810 | file_bridge `baseline_regex_patch1` |
+| 79 | jarun__nnn | 379/477 | 闭环候选 |
+| 66 | rbakbashev__elfcat | 371/564 | file_bridge reference patch（17→…→66） |
+| 62 | tomnomnom__gron | 140/224 | 无外部 LLM file_bridge restoration（26→62） |
+| 50 | burntsushi__xsv | 590/1186 | CSV strategy pack + file_bridge restore_patch7（41→50） |
+| 45 | clog-tool__clog-cli | 260/575 | file_bridge restoration |
+| 40 | agourlay__zip-password-finder | 274/680 | archive/clap strategy pack（26→40） |
+| 37 | ajeetdsouza__zoxide | 195/531 | glm-5.1（18→37）；本地 holdout 偏弱 |
+| 13 | alecthomas__chroma | 65/515 | 无外部 LLM file_bridge syntax-highlighter（3→13）；受反过拟合上限约束 |
+
+每条 baseline 只记录 aggregate summary 与 submission hash，不读取 hidden 失败细节。低分任务（chroma/zoxide/zip/clog-cli/xsv）多为强本地信号未泛化到官方 aggregate 的 local-vs-official gap 案例；后续继续推进更稳定的泛化与 hidden 全解。
