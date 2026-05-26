@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-05-11T00:16:55.430723+00:00",
+  "recorded_at": "2026-05-26T05:35:10.237052+00:00",
   "instance_id": "ajeetdsouza__zoxide.67ca1bc",
-  "model": "glm-5.1",
-  "config_path": "config\\settings.yaml",
-  "notes": "Official breakthrough: static-assets mini-lab candidate, aggregate-only; ProgramBench info score 37 vs previous score 18.",
+  "model": "claude-file-bridge-zoxide-reconstruct",
+  "config_path": "output/_zoxide_base (multi-file: main.py/db.py/init_templates.py)",
+  "notes": "Official aggregate baseline: 357/531 counted tests, score 67; raw eval 396/577; aggregate-only. No-external-LLM in-framework reconstruction of the score-37 base: byte-exact init <shell> default outputs for 9 shells (allowed static asset) + general --cmd/--hook/--no-cmd template substitution, plus general db algorithm fixes (add dir-validation, +4.0 frecency, query ranking/--list/--score rjust(6), remove, import error format). Supersedes glm-5.1 score 37. Local metrics carried from assets-on ablation run.",
   "local": {
     "status": "failed",
-    "resolved_rate": 0.8846153846153846,
-    "holdout_resolved_rate": 0.2857142857142857,
-    "probes_conducted": 28,
-    "iterations_used": 1
+    "resolved_rate": 0.0,
+    "holdout_resolved_rate": null,
+    "probes_conducted": 29,
+    "iterations_used": 0
   },
   "official": {
-    "passed_tests": 195,
+    "passed_tests": 357,
     "total_tests": 531,
-    "pass_rate": 0.3672316384180791,
-    "score": 37,
+    "pass_rate": 0.672316384180791,
+    "score": 67,
     "fully_resolved": false,
     "almost_resolved": false,
     "error_code": null,
     "warning_count": 0
   },
   "submission": {
-    "path": "runs\\official_breakthrough_loop\\submission_assets_enabled_885\\ajeetdsouza__zoxide.67ca1bc\\submission.tar.gz",
-    "sha256": "4f20c04eda78df1b1eebd326f558f225639eca24f9a5b87172bcd3f441af4e63"
+    "path": "runs\\programbench_official_eval\\submission_zoxide_reconstruct_20260526\\ajeetdsouza__zoxide.67ca1bc\\submission.tar.gz",
+    "sha256": "7d6ec610615bb7443cb60f7f14c2205dc0c282fc2c95cc37d360665269fb23b8"
   }
 }

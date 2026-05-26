@@ -917,9 +917,9 @@ MIT License.
 | 79 | jarun__nnn | 379/477 | 闭环候选 |
 | 75 | clog-tool__clog-cli | 432/575 | 无外部 LLM file_bridge from_latest_patch7（45→75；raw 567/778；help/missing-file/semver + .clog.toml 配置错误契约） |
 | 70 | burntsushi__xsv | 832/1186 | 无外部 LLM file_bridge restore_patch8 broad subcommand 重写（50→70；raw 953/1317） |
+| 67 | ajeetdsouza__zoxide | 357/531 | 无外部 LLM 重建：9 个 shell 的 init 字节级复现（允许的 static asset）+ 通用 db 算法（37→67；raw 396/577） |
 | 66 | rbakbashev__elfcat | 371/564 | file_bridge reference patch（17→…→66） |
 | 62 | tomnomnom__gron | 140/224 | 无外部 LLM file_bridge restoration（26→62） |
-| 37 | ajeetdsouza__zoxide | 195/531 | glm-5.1（18→37）；本地 holdout 偏弱 |
 | 13 | alecthomas__chroma | 65/515 | 无外部 LLM file_bridge syntax-highlighter（3→13）；受反过拟合上限约束 |
 
 每条 baseline 只记录 aggregate summary 与 submission hash，不读取 hidden 失败细节。低分任务（chroma/zoxide/zip/clog-cli/xsv）多为强本地信号未泛化到官方 aggregate 的 local-vs-official gap 案例；后续继续推进更稳定的泛化与 hidden 全解。
