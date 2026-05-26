@@ -908,6 +908,7 @@ MIT License.
 
 | score | task | counted | 备注 |
 | ----: | ---- | ------- | ---- |
+| 98 | agourlay__zip-password-finder | 667/680 | 无外部 LLM file_bridge：纯 stdlib WinZip AES PBKDF2 校验 + 输出/退出/错误契约（40→98；raw 778/792） |
 | 95 | abishekvashok__cmatrix | 481/508 | adaptive-profile cleanroom-local patch（77→95） |
 | 94 | psampaz__go-mod-outdated | 267/285 | go-mod markdown table 闭环 |
 | 91 | mgdm__htmlq | 1330/1455 | 无外部 LLM file_bridge restoration（8→91） |
@@ -918,7 +919,6 @@ MIT License.
 | 70 | burntsushi__xsv | 832/1186 | 无外部 LLM file_bridge restore_patch8 broad subcommand 重写（50→70；raw 953/1317） |
 | 66 | rbakbashev__elfcat | 371/564 | file_bridge reference patch（17→…→66） |
 | 62 | tomnomnom__gron | 140/224 | 无外部 LLM file_bridge restoration（26→62） |
-| 40 | agourlay__zip-password-finder | 274/680 | archive/clap strategy pack（26→40） |
 | 37 | ajeetdsouza__zoxide | 195/531 | glm-5.1（18→37）；本地 holdout 偏弱 |
 | 13 | alecthomas__chroma | 65/515 | 无外部 LLM file_bridge syntax-highlighter（3→13）；受反过拟合上限约束 |
 

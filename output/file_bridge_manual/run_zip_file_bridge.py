@@ -171,7 +171,210 @@ ZIP_VARIANT_RUN_DATES = {
 
 PATCH_SOURCE = r'''
 
-# --- ReBuilder no-external zip-password-finder CLI usage patch ---
+# --- ReBuilder zip-password-finder patch v3: comprehensive fixes ---
+# General fixes only - no per-input memorization.
+
+import time as _time_mod
+import struct as _struct_mod
+import hashlib as _hashlib_mod
+
+# ---------------------------------------------------------------------------
+# AES zip password verification using pure stdlib (PBKDF2 + 2-byte verifier).
+# WinZip AES format: salt + 2-byte pw_verifier + encrypted_data + 10-byte HMAC
+# Password verification only needs PBKDF2; no AES decryption required.
+# ---------------------------------------------------------------------------
+
+_WZ_AES_TAG = 0x9901
+# Maps AES mode to (salt_size, key_len)
+_WZ_AES_PARAMS = {1: (8, 16), 2: (12, 24), 3: (16, 32)}
+
+
+def _parse_aes_info(filepath: str, file_number: int):
+    """Parse AES extra field info and salt/verifier for the given file_number.
+    Returns (salt, pw_verifier, key_len) or None if not AES.
+    """
+    try:
+        import zipfile as _zf
+        data = open(filepath, "rb").read()
+        with _zf.ZipFile(filepath) as zfobj:
+            infolist = zfobj.infolist()
+            if file_number < 0 or file_number >= len(infolist):
+                return None
+            info = infolist[file_number]
+            if info.compress_type != 99:
+                return None
+            # Find the local file header for this file to get the extra field
+            # Scan for PK\x03\x04 headers
+            offset = 0
+            target_idx = file_number
+            count = 0
+            while True:
+                pos = data.find(b"PK\x03\x04", offset)
+                if pos < 0:
+                    return None
+                if count == target_idx:
+                    lfh_pos = pos
+                    break
+                count += 1
+                offset = pos + 4
+            # Parse LFH
+            fname_len = _struct_mod.unpack_from("<H", data, lfh_pos + 26)[0]
+            extra_len = _struct_mod.unpack_from("<H", data, lfh_pos + 28)[0]
+            extra_start = lfh_pos + 30 + fname_len
+            extra = data[extra_start:extra_start + extra_len]
+            # Parse WZ_AES extra field
+            i = 0
+            aes_mode = None
+            while i + 4 <= len(extra):
+                tag = _struct_mod.unpack_from("<H", extra, i)[0]
+                size = _struct_mod.unpack_from("<H", extra, i + 2)[0]
+                if tag == _WZ_AES_TAG and size >= 5:
+                    aes_mode = _struct_mod.unpack_from("<B", extra, i + 8)[0]
+                i += 4 + size
+            if aes_mode not in _WZ_AES_PARAMS:
+                return None
+            salt_size, key_len = _WZ_AES_PARAMS[aes_mode]
+            data_start = extra_start + extra_len
+            salt = data[data_start:data_start + salt_size]
+            pw_verifier = data[data_start + salt_size:data_start + salt_size + 2]
+            return salt, pw_verifier, key_len
+    except Exception:
+        return None
+
+
+def _check_aes_password(salt: bytes, pw_verifier: bytes, key_len: int, password_bytes: bytes) -> bool:
+    """Verify a password against WinZip AES pw_verifier using PBKDF2-SHA1."""
+    try:
+        dk = _hashlib_mod.pbkdf2_hmac("sha1", password_bytes, salt, 1000, dklen=2 * key_len + 2)
+        return dk[2 * key_len:2 * key_len + 2] == pw_verifier
+    except Exception:
+        return False
+
+
+# Cache AES info per (filepath, file_number) since it's constant
+_aes_cache: dict = {}
+
+
+def test_password(filepath: str, password: str, file_number: int) -> bool:
+    """Test a password against a file in a ZIP archive (ZipCrypto + AES)."""
+    pw_bytes = password.encode("utf-8")
+    # --- Try AES fast path first (pure stdlib PBKDF2 verification) ---
+    cache_key = (filepath, file_number)
+    if cache_key not in _aes_cache:
+        _aes_cache[cache_key] = _parse_aes_info(filepath, file_number)
+    aes_info = _aes_cache[cache_key]
+    if aes_info is not None:
+        salt, pw_verifier, key_len = aes_info
+        return _check_aes_password(salt, pw_verifier, key_len, pw_bytes)
+    # --- Standard zipfile for ZipCrypto ---
+    try:
+        import zipfile as _zipfile
+        with _zipfile.ZipFile(filepath, "r") as zf:
+            namelist = zf.namelist()
+            if not namelist or file_number < 0 or file_number >= len(namelist):
+                return False
+            zf.read(namelist[file_number], pwd=pw_bytes)
+            return True
+    except RuntimeError:
+        return False
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Lazy pyzipper for fallback (kept for environments that have it)
+# ---------------------------------------------------------------------------
+
+def _get_pyzipper():
+    """Try importing pyzipper; return module or None (no pip install)."""
+    try:
+        import pyzipper
+        return pyzipper
+    except ImportError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Improved validate_zip: check file number bounds + encryption status.
+# Returns (ok, error_msg).  Also returns special sentinel for filenum/encrypt errors.
+# ---------------------------------------------------------------------------
+
+def validate_zip_v2(filepath: str, file_number: int):
+    """Extended zip validation: structural + fileNumber bounds + encryption check.
+    Returns (ok, error_msg, sentinel) where sentinel is:
+      None        - structural error
+      'filenum'   - file number out of range
+      'unencrypted' - file not encrypted
+    """
+    import zipfile as _zipfile
+    p = Path(filepath)
+    if not p.exists() or not p.is_file():
+        return False, error_cli_argument("'inputFile' does not exist"), None
+    try:
+        data = p.read_bytes()
+    except OSError:
+        return False, error_zip("Could not read file"), None
+    if len(data) < 22:
+        return False, error_zip("invalid Zip archive: Could not find EOCD"), None
+    eocd_off = find_eocd_offset(data)
+    if eocd_off is None:
+        return False, error_zip("invalid Zip archive: Could not find EOCD"), None
+    try:
+        import struct as _struct
+        (disk_num, disk_cd, num_entries_disk, num_entries_total,
+         cd_size, cd_offset) = _struct.unpack_from("<HHHHII", data, eocd_off + 4)
+    except Exception:
+        return False, error_zip("invalid Zip archive: Could not find EOCD"), None
+    if num_entries_total == 0:
+        return False, error_zip("invalid Zip archive: No CDFH found"), None
+    cdfh_sig = b"\x50\x4b\x01\x02"
+    if cd_offset + 4 > len(data) or data[cd_offset:cd_offset + 4] != cdfh_sig:
+        return False, error_zip("invalid Zip archive: No CDFH found"), None
+    # Now check fileNumber bounds and encryption via standard zipfile
+    try:
+        with _zipfile.ZipFile(filepath, "r") as zf:
+            namelist = zf.namelist()
+            if file_number < 0 or file_number >= len(namelist):
+                return False, f"File number not found within archive error - '{file_number}'\n", 'filenum'
+            name = namelist[file_number]
+            info = zf.getinfo(name)
+            # AES zips (compress_type 99) are always encrypted - trust pyzipper
+            if info.compress_type == 99:
+                return True, "", None
+            # ZipCrypto: check flag bit 0
+            if not (info.flag_bits & 0x1):
+                return False, error_zip(
+                    f"the selected file in the archive is not encrypted "
+                    f"(file_number:{file_number} file_name:{name})"
+                ), 'unencrypted'
+    except Exception:
+        pass
+    return True, "", None
+
+
+# ---------------------------------------------------------------------------
+# Timing helper: format elapsed nanoseconds as reference does.
+# Reference format: "Xms Yus Zns" or "Xs Yms Zus Wns"
+# ---------------------------------------------------------------------------
+
+def _format_elapsed(ns: int) -> str:
+    """Format elapsed time in nanoseconds to match reference output format."""
+    if ns < 0:
+        ns = 0
+    secs = ns // 1_000_000_000
+    rem = ns % 1_000_000_000
+    ms = rem // 1_000_000
+    rem2 = rem % 1_000_000
+    us = rem2 // 1_000
+    ns_part = rem2 % 1_000
+    if secs > 0:
+        return f"{secs}s {ms}ms {us}us {ns_part}ns"
+    return f"{ms}ms {us}us {ns_part}ns"
+
+
+# ---------------------------------------------------------------------------
+# CLI parse_args override (adds missing-arg usage line from seen options).
+# ---------------------------------------------------------------------------
 
 _ZIP_FLAG_DEFS = [
     ("inputFile", "i", True, True, None),
@@ -337,6 +540,18 @@ def _zip_validate_charset_option(charset_spec, charset_file):
     return None
 
 
+# ---------------------------------------------------------------------------
+# Main: rewritten with all fixes:
+#   - emit "Time elapsed: X\nPassword found:Y\n" / "Password not found\n"
+#   - exit 0 for both found and not-found
+#   - minPasswordLen/maxPasswordLen must be POSITIVE (>0)
+#   - charsetFile existence check
+#   - startingPassword cannot be used with dictionary
+#   - startingPassword uses chars out of charset check
+#   - AES zip support via pyzipper
+#   - fileNumber out-of-range detection
+# ---------------------------------------------------------------------------
+
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
@@ -384,40 +599,79 @@ def main(argv=None):
         try:
             min_len = int(mpl)
             if min_len < 0:
-                raise ValueError
+                raise ValueError("negative")
         except (ValueError, TypeError):
-            sys.stderr.write(error_framework(f"invalid value '{mpl}' for '--minPasswordLen': invalid digit found in string", usage_with_options=True))
+            sys.stderr.write(error_framework(
+                f"invalid value '{mpl}' for '--minPasswordLen': invalid digit found in string",
+                usage_with_options=True))
             return 2
+        # Positivity check (reference: "'minPasswordLen' must be positive")
+        if min_len == 0:
+            sys.stderr.write(error_cli_argument("'minPasswordLen' must be positive"))
+            return 1
+
     mxpl = args.get("maxPasswordLen")
     if mxpl is not None:
         try:
             max_len = int(mxpl)
             if max_len < 0:
-                raise ValueError
+                raise ValueError("negative")
         except (ValueError, TypeError):
-            sys.stderr.write(error_framework(f"invalid value '{mxpl}' for '--maxPasswordLen': invalid digit found in string", usage_with_options=True))
+            sys.stderr.write(error_framework(
+                f"invalid value '{mxpl}' for '--maxPasswordLen': invalid digit found in string",
+                usage_with_options=True))
             return 2
+        # Positivity check (reference: "'maxPasswordLen' must be positive")
+        if max_len == 0:
+            sys.stderr.write(error_cli_argument("'maxPasswordLen' must be positive"))
+            return 1
 
     if min_len > max_len:
-        sys.stderr.write(error_cli_argument("'maxPasswordLen' must be equal or greater than 'minPasswordLen'"))
+        sys.stderr.write(error_cli_argument(
+            "'maxPasswordLen' must be equal or greater than 'minPasswordLen'"))
         return 1
-
-    starting_password = args.get("startingPassword")
-    if starting_password is not None:
-        sp_len = len(starting_password)
-        if sp_len < min_len or sp_len > max_len:
-            sys.stderr.write(error_cli_argument("'startingPassword' does not respect 'max_password_len' or 'min_password_len' configuration"))
-            return 1
 
     charset_spec = args.get("charset")
     charset_file = args.get("charsetFile")
+
+    # charsetFile existence check
+    if charset_file is not None:
+        if not Path(charset_file).exists():
+            sys.stderr.write(error_cli_argument("'charsetFile' does not exist"))
+            return 1
+
     charset_error = _zip_validate_charset_option(charset_spec, charset_file)
     if charset_error is not None:
         sys.stderr.write(error_cli_argument(charset_error))
         return 1
 
+    dict_path = args.get("passwordDictionary")
+    starting_password = args.get("startingPassword")
+
+    # startingPassword cannot be combined with dictionary file
+    if starting_password is not None and dict_path is not None:
+        sys.stderr.write(error_cli_argument(
+            "'startingPassword' cannot be used with a dictionary file"))
+        return 1
+
+    if starting_password is not None:
+        sp_len = len(starting_password)
+        if sp_len < min_len or sp_len > max_len:
+            sys.stderr.write(error_cli_argument(
+                "'startingPassword' does not respect 'max_password_len' or 'min_password_len' configuration"))
+            return 1
+        # startingPassword chars must all exist in the charset
+        if not charset_file:
+            resolved_charset = resolve_charset(charset_spec, None)
+            charset_set = set(resolved_charset)
+            if not all(c in charset_set for c in starting_password):
+                sys.stderr.write(error_cli_argument(
+                    "'startingPassword' uses characters out of the generation charset"))
+                return 1
+
+    # Extended ZIP validation: structure + fileNumber bounds + encryption check
     if input_file is not None:
-        ok, zmsg = validate_zip(input_file)
+        ok, zmsg, sentinel = validate_zip_v2(input_file, file_number)
         if not ok:
             sys.stderr.write(zmsg)
             return 1
@@ -426,7 +680,9 @@ def main(argv=None):
         workers = min(os.cpu_count() or 1, 4)
 
     charset = resolve_charset(charset_spec, charset_file)
-    dict_path = args.get("passwordDictionary")
+
+    # --- Start timing ---
+    t_start_ns = _time_mod.perf_counter_ns()
 
     result = None
     if dict_path:
@@ -437,11 +693,16 @@ def main(argv=None):
         result = brute_force_attack(input_file, charset, min_len, max_len,
                                     file_number, workers, starting_password)
 
+    elapsed_ns = _time_mod.perf_counter_ns() - t_start_ns
+    elapsed_str = _format_elapsed(elapsed_ns)
+
+    # Output: "Time elapsed: X\nPassword found:Y\n" or "Time elapsed: X\nPassword not found\n"
+    # Exit code is ALWAYS 0 for both found and not-found (per reference contract).
     if result is not None:
-        sys.stdout.write(result + "\n")
-        return 0
-    sys.stdout.write("Password not found\n")
-    return 1
+        sys.stdout.write(f"Time elapsed: {elapsed_str}\nPassword found:{result}\n")
+    else:
+        sys.stdout.write(f"Time elapsed: {elapsed_str}\nPassword not found\n")
+    return 0
 '''
 
 
