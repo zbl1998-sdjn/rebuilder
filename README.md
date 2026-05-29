@@ -1,5 +1,10 @@
 # ReBuilder Framework
 
+[![CI](https://github.com/zbl1998-sdjn/rebuilder/actions/workflows/ci.yml/badge.svg)](https://github.com/zbl1998-sdjn/rebuilder/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![Tests](https://img.shields.io/badge/tests-776%20passing-brightgreen)
+![License](https://img.shields.io/badge/license-Apache%202.0-green)
+
 ReBuilder is a cleanroom program reconstruction agent architecture for
 ProgramBench-style tasks. It tries to rebuild a program from bundled
 documentation and normal black-box execution of the reference executable,
@@ -15,122 +20,26 @@ This repository is an active research prototype.
 
 Verified locally on Windows with Docker Desktop:
 
-- Full unit test suite: `628 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
-- GLM-5.1 coding-plan endpoint smoke tested
-- Official ProgramBench cleanroom zoxide sample runs end-to-end
-- Frozen zoxide local smoke baseline: `16.7%` local differential equivalence
-- Latest zoxide cleanroom smoke candidate: `83.3%` local differential
-  equivalence, exploration-only and not an official hidden-test result
-- Latest stateful WSL zoxide cleanroom smoke candidate: `100.0%` local
-  differential equivalence, exploration-only and not an official hidden-test
-  result
-- Latest holdout-gated WSL zoxide smoke: `76.0%` exploration and `28.6%`
-  aggregate internal holdout; static assets materialized, but packaging gate
-  still rejected it before official eval
-- Reference-only zoxide cleanroom probe check now captures full shell init
-  scripts for bash, zsh, fish, and powershell without calling an LLM
-- Current zoxide official evaluator baseline: ProgramBench info score `37`
-  (`195/531` counted tests) from the static-assets mini-lab candidate
-- First non-zoxide official generalization baseline:
-  `agourlay__zip-password-finder.704700d` ProgramBench info score improved from
-  `26` to `36` (`248/680` counted tests; raw eval `340/792`) after the
-  archive/clap strategy-pack closed loop
-- Second non-zoxide official generalization baseline:
-  `abishekvashok__cmatrix.5c082c6` ProgramBench info score improved from
-  `77` to `95` (`481/508` counted tests; raw eval `739/769`) after a
-  cleanroom-local patch on the historical adaptive-profile candidate. This is
-  an aggregate official baseline upgrade, not a solved task
-- Third non-zoxide official generalization baseline:
-  `jarun__nnn.cb2c535` ProgramBench info score `79` (`379/477` counted
-  tests; raw eval `1101/1796`) from a closed-loop, assets-disabled candidate
-- Fourth non-zoxide official generalization baseline:
-  `psampaz__go-mod-outdated.bb79367` ProgramBench info score `15`
-  (`43/285` counted tests; raw eval `91/342`) from a holdout-gated min-50
-  closed-loop candidate. Local holdout was `11/11`, so this is also a tracked
-  local-vs-official generalization gap.
-- Fifth non-zoxide official generalization baseline:
-  `wfxr__csview.8ac4de0` ProgramBench info score `57` (`190/335` counted
-  tests; raw eval `200/348`) from a holdout-gated min-50 closed-loop candidate.
-  After fixing stdin forwarding in local differential execution, the refreshed
-  local holdout is `8/12`, so the submitted aggregate is retained but the old
-  `11/12` local gate is treated as stale.
-- Sixth non-zoxide official generalization baseline:
-  `mgdm__htmlq.6e31bc8` ProgramBench info score improved from `8` to `91`
-  (`1330/1455` counted tests; raw eval `1881/2058`) after a no-external-LLM
-  file_bridge restoration patch. Local exploration was `48/49`, holdout was
-  `14/15`, and runtime smoke passed across `args`, `stdin`, `input_files`, and
-  default dimensions. This is an aggregate official baseline upgrade, not a
-  solved task.
-- Seventh non-zoxide official generalization baseline:
-  `burntsushi__xsv.f430466` ProgramBench info score improved from `41` to
-  `50` after CSV/xsv strategy pack refinement, then to `70` (`832/1186`
-  counted tests; raw eval `953/1317`) via a no-external-LLM `file_bridge`
-  `restore_patch8` that reimplements many subcommands (stats/flatten/fmt/
-  split/cat/headers/...) as general algorithms found by black-box differential
-  probing, and fixes a `split --size 0` infinite loop. Remaining mismatches
-  (Rust HashMap tie order, RNG) are intentionally not overfit. This is an
-  aggregate official baseline upgrade, not a solved task.
-- Eighth non-zoxide official generalization baseline:
-  `tomnomnom__gron.88a6234` ProgramBench info score improved from `26` to
-  `62` (`140/224` counted tests; raw eval `148/233`) after a no-external-LLM
-  file_bridge restoration patch. Local exploration was `45/45`, holdout was
-  `13/14`, and runtime smoke passed across `args`, `stdin`, `input_files`, and
-  default dimensions. This is an aggregate official baseline upgrade, not a
-  solved task.
-- Ninth non-zoxide official generalization baseline:
-  `clog-tool__clog-cli.7066cba` ProgramBench info score improved from `41` to
-  `45` (`257/575` counted tests; raw eval `391/778`) after a no-external-LLM
-  file_bridge restoration patch. Local exploration was `99/106`, holdout was
-  `13/16`, and runtime smoke passed across `args`, `stdin`, `input_files`, and
-  default dimensions. This is an aggregate official baseline upgrade, not a
-  solved task.
-- Tenth non-zoxide official generalization baseline:
-  `chmln__sd.87d1ba5` ProgramBench info score `86` (`699/810` counted
-  tests; raw eval `752/869`) from no-external-LLM `file_bridge` subagent
-  runs, most recently `baseline_regex_patch1`. Local holdout was `12/12`,
-  and runtime smoke passed across `args`, `stdin`, `input_files`, and default
-  dimensions. This is a same-score aggregate official baseline refinement, not
-  a solved task.
-- Official elfcat aggregate baseline:
-  `rbakbashev__elfcat.52f8cc7` ProgramBench info score `56` (`316/564`
-  counted tests; raw eval `390/646`) from a no-external-LLM `file_bridge`
-  official aggregate baseline. Later `reference_html_patch2` and
-  `reference_html_patch3` local candidates reached exploration `119/119` and
-  holdout `17/18`, but their official eval attempts timed out or failed at the
-  evaluator/Docker boundary without a usable aggregate `.eval.json`. The
-  closed-loop runner now records that missing-eval-json path as an operational
-  failure instead of summarizing it as `0/0`. The ranker/planner also no longer
-  attaches stale same-task failure reports to newer candidates, and invalid
-  embedded `0/0` summaries are routed as official-eval operational failures.
-  The score `56` record remains the baseline and is not a solved task.
-- `alecthomas__chroma.8d04def` official aggregate baseline improved from
-  score `3` (`13/515` counted) to score `13` (`65/515` counted tests; raw
-  eval `73/531`) via a no-external-LLM `file_bridge` syntax-highlighter
-  restore/generalization patch (`restore_patch3_generalization_probe`).
-  Local exploration and internal holdout were `100%` under a 40-case
-  min-holdout gate. An earlier `restore_patch2` candidate had `100%` local
-  but official `0` (`0/515`), so the generalization-probe patch3 is the
-  first chroma official upgrade. This is an aggregate official baseline
-  upgrade, not a solved task (`fully_resolved=false`).
-- Previous zoxide official evaluator baseline: raw `175/974`, score `18`
-- Earlier official evaluator candidates remained below the previous baseline:
-  `95/577` from the Windows-local validation candidate, `76/577` from the
-  WSL/Linux validation candidate, and `78/577` from the stateful WSL candidate
-- Mini-lab runner can aggregate multiple cleanroom task runs
-- Probe generalization upgraded from sample-count filling to behavior-coverage
-  filling: discovered flags, subcommands, stdin/file modes, nonzero exits, and
-  missing behavior modes are tracked and logged in result metadata.
+- Full unit test suite: `776 passed` in a project-local Python 3.12 `.venv` with `pytest -q`
+- GLM-5.1 and Kimi API endpoints smoke tested; `local_openai` loopback provider available for Ollama/LM Studio
+- `file_bridge` LLM provider available for no-external-LLM subagent reconstruction workflows
+- Full cleanroom loop (probe → spec → implement → diff-test → repair → package) runs end-to-end
+- **13 official ProgramBench aggregate baselines** across 13 distinct task families (see table below)
+- Highest single-task score: `agourlay__zip-password-finder` score **98** (`667/680` counted; raw eval `778/792`)
+- All baselines are `fully_resolved=false`; none are solved tasks
+- Runtime smoke gate (args/stdin/input_files/env_vars dimensions) integrated into packaging and candidate ranking
+- Behavior-coverage-driven probing, internal holdout gating, and non-regressive repair all active
+- 11 task-domain strategy packs with generalization and validation playbooks
+- Anti-overfit cleanroom boundary enforced: no hidden-test details, no hardcoded lookup tables for stateful/query behavior
 
-The zoxide score is not high, but the important milestone is that the full
-cleanroom loop now runs:
+The full cleanroom loop:
 
 ```text
 task_cleanroom image -> probe reference -> synthesize spec -> design architecture
 -> generate replacement -> differential test -> repair -> re-test -> package/report
 ```
 
-The official score is a single-instance non-zero baseline, not a solved task:
-`fully_resolved=False`, `almost_resolved=False`.
+All official baselines are aggregate-only, `fully_resolved=False`, `almost_resolved=False`.
 
 ## Benchmark Interpretation
 
@@ -146,11 +55,11 @@ seeing the implementation.
 ReBuilder should therefore be judged as an agent architecture experiment, not
 as a solved-program generator. The current official baselines show that the
 architecture can consistently produce non-zero cleanroom results across
-multiple task families, with strong individual signals such as `cmatrix` score
-`93`, `chmln__sd` score `86`, `nnn` score `79`, `csview` score `57`, and
-several additional non-zoxide baselines in the `36`-`44` range. This is
-meaningful progress beyond a naive
-single-shot prompt, but it is not yet a general solution.
+multiple task families, with strong individual signals such as `zip-password-finder`
+score `98`, `cmatrix` score `95`, `htmlq` score `91`, `chmln__sd` score `86`,
+`nnn` score `79`, `csview` score `87`, `clog-cli` score `75`, `xsv` score `70`,
+`zoxide` score `67`, and `gron` score `62`. This is meaningful progress beyond a
+naive single-shot prompt, but it is not yet a general solution.
 
 Current system assessment: ReBuilder is an approximately `8/10` research
 prototype. Its strengths are compliance-aware cleanroom boundaries,
@@ -918,8 +827,4 @@ MIT License.
 | 75 | clog-tool__clog-cli | 432/575 | 无外部 LLM file_bridge from_latest_patch7（45→75；raw 567/778；help/missing-file/semver + .clog.toml 配置错误契约） |
 | 70 | burntsushi__xsv | 832/1186 | 无外部 LLM file_bridge restore_patch8 broad subcommand 重写（50→70；raw 953/1317） |
 | 67 | ajeetdsouza__zoxide | 357/531 | 无外部 LLM 重建：9 个 shell 的 init 字节级复现（允许的 static asset）+ 通用 db 算法（37→67；raw 396/577） |
-| 66 | rbakbashev__elfcat | 371/564 | file_bridge reference patch（17→…→66） |
-| 62 | tomnomnom__gron | 140/224 | 无外部 LLM file_bridge restoration（26→62） |
-| 13 | alecthomas__chroma | 65/515 | 无外部 LLM file_bridge syntax-highlighter（3→13）；受反过拟合上限约束 |
-
-每条 baseline 只记录 aggregate summary 与 submission hash，不读取 hidden 失败细节。低分任务（chroma/zoxide/zip/clog-cli/xsv）多为强本地信号未泛化到官方 aggregate 的 local-vs-official gap 案例；后续继续推进更稳定的泛化与 hidden 全解。
+| 66 | rbakbashev__elfcat | 371/564 | file_bri

@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Job 1: Type Check ──────────────────────────────────────────────────────
+  type-check:
+    name: Type Check (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: mypy type check
+        run: python -m mypy . --ignore-missing-imports
+
+  # ── Job 2: Unit Tests ──────────────────────────────────────────────────────
+  test:
+    name: Unit Tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: type-check
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        # Excludes tests that require:
+        #   - External LLM API keys (glm, kimi, local_openai)
+        #   - Docker daemon (docker, wsl, *_harness, execution_backends)
+        #   - Full benchmark runs (run_session, run_official, run_restore, run_weak, run_missing)
+        #   - ProgramBench dataset download (programbench, mini_lab)
+        #   - Submission infrastructure (submission_*)
+        run: |
+          python -m pytest -q --tb=short \
+            -k "not (client or harness or backend or submission \
+                or programbench or mini_lab or docker or wsl \
+                or run_session or run_official or run_restore \
+                or run_weak or run_missing or run_programbench)"
+        env:
+          # Disable all external API calls in unit tests
+          GLM_API_KEY: ""
+          KIMI_API_KEY: ""
+          OPENAI_API_KEY: ""
