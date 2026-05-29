@@ -10,6 +10,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # ── Job 1: Type Check ──────────────────────────────────────────────────────
   type-check:
@@ -20,15 +23,15 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt mypy
 
       - name: mypy type check
         run: python -m mypy . --ignore-missing-imports
@@ -43,9 +46,9 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
@@ -67,7 +70,6 @@ jobs:
                 or run_session or run_official or run_restore \
                 or run_weak or run_missing or run_programbench)"
         env:
-          # Disable all external API calls in unit tests
           GLM_API_KEY: ""
           KIMI_API_KEY: ""
           OPENAI_API_KEY: ""
